@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package daemon;
+
+option go_package = "github.com/lemon4ksan/g-man/pkg/protobuf/daemon";
+
+service DaemonService {
+  rpc GetStatus (GetStatusRequest) returns (GetStatusResponse);
+  rpc StopDaemon (StopDaemonRequest) returns (StopDaemonResponse);
+  rpc PlayGame (PlayGameRequest) returns (PlayGameResponse);
+  rpc ExitGame (ExitGameRequest) returns (ExitGameResponse);
+  rpc ExecAction (ExecActionRequest) returns (ExecActionResponse);
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  bool connected = 1;
+  string steam_id = 2;
+  uint32 current_appid = 3;
+  string uptime = 4;
+  uint64 memory_bytes = 5;
+}
+
+message StopDaemonRequest {}
+
+message StopDaemonResponse {
+  string message = 1;
+}
+
+message PlayGameRequest {
+  uint32 appid = 1;
+}
+
+message PlayGameResponse {
+  string message = 1;
+}
+
+message ExitGameRequest {}
+
+message ExitGameResponse {
+  string message = 1;
+}
+
+message Item {
+  uint64 asset_id = 1;
+  uint32 def_index = 2;
+  uint32 quality = 3;
+  uint32 quantity = 4;
+  bool is_tradable = 5;
+  bool is_craftable = 6;
+  map<string, string> attributes = 7;
+}
+
+message ExecActionRequest {
+  uint32 appid = 1;
+  string action = 2;
+  map<string, string> params = 3;
+}
+
+message ExecActionResponse {
+  string message = 1;
+  repeated Item items = 2;
+}
