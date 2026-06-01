@@ -335,7 +335,7 @@ func (d *Driver) ExecuteAction(ctx context.Context, action string, params map[st
 			)
 		}
 
-		w.Flush()
+		_ = w.Flush()
 
 		return sb.String(), nil
 	}

@@ -33,22 +33,37 @@ const (
 )
 
 func main() {
+	var exitCode int
+	defer func() {
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
+
 	if len(os.Args) < 2 {
 		printUsage()
-		os.Exit(1)
+
+		exitCode = 1
+
+		return
 	}
 
 	command := os.Args[1]
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	conn, err := GetIPCConnection(ctx)
 	if err != nil {
+		cancel()
 		fmt.Fprintf(os.Stderr, "%sError connecting to daemon: %v%s\n", ColorRed, err, ColorReset)
 		fmt.Fprintf(os.Stderr, "%sIs the daemon 'g-mand' running?%s\n", ColorYellow, ColorReset)
-		os.Exit(1)
+
+		exitCode = 1
+
+		return
 	}
+
+	defer cancel()
 	defer conn.Close()
 
 	client := pb.NewDaemonServiceClient(conn)
@@ -63,13 +78,19 @@ func main() {
 	case "play":
 		if len(os.Args) < 3 {
 			fmt.Printf("%sError: 'play' command requires an AppID. Example: gmanctl play 440%s\n", ColorRed, ColorReset)
-			os.Exit(1)
+
+			exitCode = 1
+
+			return
 		}
 
 		appID, err := strconv.ParseUint(os.Args[2], 10, 32)
 		if err != nil {
 			fmt.Printf("%sError: Invalid AppID %q. Must be an integer.%s\n", ColorRed, os.Args[2], ColorReset)
-			os.Exit(1)
+
+			exitCode = 1
+
+			return
 		}
 
 		handlePlay(ctx, client, uint32(appID))
@@ -83,13 +104,19 @@ func main() {
 				ColorRed,
 				ColorReset,
 			)
-			os.Exit(1)
+
+			exitCode = 1
+
+			return
 		}
 
 		appID, err := strconv.ParseUint(os.Args[2], 10, 32)
 		if err != nil {
 			fmt.Printf("%sError: Invalid AppID %q.%s\n", ColorRed, os.Args[2], ColorReset)
-			os.Exit(1)
+
+			exitCode = 1
+
+			return
 		}
 
 		action := os.Args[3]
@@ -111,7 +138,10 @@ func main() {
 	default:
 		fmt.Printf("%sUnknown command: %s%s\n", ColorRed, command, ColorReset)
 		printUsage()
-		os.Exit(1)
+
+		exitCode = 1
+
+		return
 	}
 }
 

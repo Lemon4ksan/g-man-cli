@@ -7,11 +7,11 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
-	"flag"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -463,7 +463,7 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 func defaultSockPath() string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		dir := filepath.Join(home, ".config", "gman")
-		_ = os.MkdirAll(dir, 0o755)
+		_ = os.MkdirAll(dir, 0o750)
 		return filepath.Join(dir, "gman.sock")
 	}
 
@@ -495,18 +495,20 @@ func GetIPCListener() (net.Listener, string, error) {
 			return nil, "", fmt.Errorf("failed to remove stale socket: %w", err)
 		}
 
-		if err := os.MkdirAll(filepath.Dir(addr), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(addr), 0o750); err != nil {
 			return nil, "", fmt.Errorf("failed to create socket directory: %w", err)
 		}
 	}
 
-	listener, err := net.Listen(netType, addr)
+	var lc net.ListenConfig
+
+	listener, err := lc.Listen(context.Background(), netType, addr)
 	if err != nil {
 		return nil, "", err
 	}
 
 	if netType == "unix" {
-		_ = os.Chmod(addr, 0o660)
+		_ = os.Chmod(addr, 0o600)
 	}
 
 	return listener, addr, nil
@@ -534,22 +536,35 @@ func loadEnvConfig() (Config, error) {
 }
 
 func main() {
+	var exitCode int
+	defer func() {
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
+
 	var debugEnabled bool
 	flag.BoolVar(&debugEnabled, "debug", false, "Enable debug logging")
+	flag.BoolVar(&debugEnabled, "d", false, "Enable debug logging (shorthand)")
 	flag.Parse()
 
 	cfg, err := loadEnvConfig()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Config Error:", err)
-		os.Exit(1)
+
+		exitCode = 1
+
+		return
 	}
 
 	store, err := jsonfile.New(cfg.StoragePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize storage: %v\n", err)
-		os.Exit(1)
+
+		exitCode = 1
+
+		return
 	}
-	defer store.Close()
 
 	logLevel := log.LevelInfo
 	if debugEnabled {
@@ -560,25 +575,39 @@ func main() {
 	logCfg.FullPath = true
 
 	logger := log.New(logCfg)
-	defer logger.Close()
 
 	shutdownCtx, shutdownFunc := context.WithCancel(context.Background())
-	defer shutdownFunc()
-
-	daemon, err := NewDaemon(cfg, store, logger, shutdownCtx, shutdownFunc)
-	if err != nil {
-		logger.Error("Failed to initialize daemon", log.Err(err))
-		os.Exit(1)
-	}
-
-	grpcServer := grpc.NewServer()
-	pb.RegisterDaemonServiceServer(grpcServer, daemon)
 
 	listener, path, err := GetIPCListener()
 	if err != nil {
-		logger.Error("Failed to listen on IPC interface", log.Err(err))
-		os.Exit(1)
+		_ = store.Close()
+
+		fmt.Fprintln(os.Stderr, "Failed to listen on IPC interface:", err)
+
+		exitCode = 1
+
+		return
 	}
+
+	daemon, err := NewDaemon(cfg, store, logger, shutdownCtx, shutdownFunc)
+	if err != nil {
+		_ = logger.Close()
+		_ = store.Close()
+
+		shutdownFunc()
+		logger.Error("Failed to initialize daemon", log.Err(err))
+
+		exitCode = 1
+
+		return
+	}
+
+	defer store.Close()
+	defer logger.Close()
+	defer shutdownFunc()
+
+	grpcServer := grpc.NewServer()
+	pb.RegisterDaemonServiceServer(grpcServer, daemon)
 
 	logger.Info("gRPC IPC server listening",
 		log.String("network", listener.Addr().Network()),
