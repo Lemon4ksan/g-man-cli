@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"flag"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -533,6 +534,10 @@ func loadEnvConfig() (Config, error) {
 }
 
 func main() {
+	var debugEnabled bool
+	flag.BoolVar(&debugEnabled, "debug", false, "Enable debug logging")
+	flag.Parse()
+
 	cfg, err := loadEnvConfig()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Config Error:", err)
@@ -546,7 +551,12 @@ func main() {
 	}
 	defer store.Close()
 
-	logCfg := log.DefaultConfig(log.LevelDebug)
+	logLevel := log.LevelInfo
+	if debugEnabled {
+		logLevel = log.LevelDebug
+	}
+
+	logCfg := log.DefaultConfig(logLevel)
 	logCfg.FullPath = true
 
 	logger := log.New(logCfg)
