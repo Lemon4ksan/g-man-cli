@@ -1,4 +1,13 @@
-.PHONY: all proto build test clean help
+# Project variables
+PKG=$(shell go list ./... | grep -v /vendor/)
+COVER_OUT?=coverage.out
+COVER_PKG?=$(PKG)
+
+# Colors for console output
+CYAN  := \033[0;36m
+RESET := \033[0m
+
+.PHONY: all proto build test format clean help
 
 all: build # Default target
 
@@ -8,8 +17,8 @@ proto: # Generate protobuf and gRPC files from daemon.proto
 		pkg/protobuf/daemon/daemon.proto
 
 build: # Build both daemon and CLI client
-	go build -o bin/g-mand cmd/g-mand/main.go
-	go build -o bin/gmanctl cmd/gmanctl/main.go
+	go build -o bin/g-mand.exe cmd/g-mand/main.go
+	go build -o bin/gmanctl.exe cmd/gmanctl/main.go
 
 test: ## Run normal quick tests
 	@printf "$(CYAN)Running unit tests...$(RESET)\n"
