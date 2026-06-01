@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -147,7 +148,9 @@ func (s *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("orchestrator start failed: %w", err)
 	}
 
-	s.sub = s.client.Bus().Subscribe(&auth.LoggedOnEvent{}, &auth.LoggedOffEvent{})
+	// Subscribe to auth and apps events to stay in sync with auto-play status
+	s.sub = s.client.Bus().
+		Subscribe(&auth.LoggedOnEvent{}, &auth.LoggedOffEvent{}, &apps.AppLaunchedEvent{}, &apps.AppQuitEvent{})
 
 	s.wg.Go(func() {
 		s.handleEvents(ctx)
@@ -249,6 +252,37 @@ func (s *Daemon) handleEvents(ctx context.Context) {
 				s.logger.Info("Login successful", log.Uint64("steam_id", ev.SteamID))
 			case *auth.LoggedOffEvent:
 				s.logger.Info("Logged off")
+			case *apps.AppLaunchedEvent:
+				s.mu.Lock()
+				s.currentAppID = ev.AppID
+				s.mu.Unlock()
+				s.logger.Info("Detected game launched", log.Uint32("appid", ev.AppID))
+				// Initialize GC session if a driver exists
+				if driver, ok := s.registry.Get(ev.AppID); ok {
+					s.logger.Info(
+						"Initializing game coordinator session for auto-launched game",
+						log.Uint32("appid", ev.AppID),
+					)
+
+					if err := driver.OnStartGC(ctx); err != nil {
+						s.logger.Error("GC startup failed on driver", log.Uint32("appid", ev.AppID), log.Err(err))
+					}
+				}
+
+			case *apps.AppQuitEvent:
+				s.mu.Lock()
+				if s.currentAppID == ev.AppID {
+					s.currentAppID = 0
+				}
+
+				s.mu.Unlock()
+				s.logger.Info("Detected game quit", log.Uint32("appid", ev.AppID))
+				// Terminate GC session if a driver exists
+				if driver, ok := s.registry.Get(ev.AppID); ok {
+					s.logger.Info("Stopping game coordinator session for quit game", log.Uint32("appid", ev.AppID))
+
+					_ = driver.OnStopGC(ctx)
+				}
 			}
 		}
 	}
@@ -272,7 +306,7 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 	if currentApp != 0 {
 		if _, ok := s.registry.Get(currentApp); ok {
 			// Resolve name from driver
-			if currentApp == 440 {
+			if currentApp == tf2.AppID {
 				appName = "Team Fortress 2"
 			}
 		}
@@ -285,6 +319,24 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 		CurrentAppName: appName,
 		Uptime:         uptime,
 		MemoryBytes:    m.Alloc,
+	}, nil
+}
+
+// FreeMemory triggers manual Garbage Collection and releases system memory back to the OS immediately.
+func (s *Daemon) FreeMemory(ctx context.Context, req *pb.FreeMemoryRequest) (*pb.FreeMemoryResponse, error) {
+	s.logger.Info("Forcing manual garbage collection and freeing system memory...")
+
+	// Force GC
+	runtime.GC()
+	// Return memory to OS immediately
+	debug.FreeOSMemory()
+
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	return &pb.FreeMemoryResponse{
+		Message:     "Garbage collection executed and memory released to the OS successfully.",
+		MemoryBytes: m.Alloc,
 	}, nil
 }
 
@@ -460,9 +512,7 @@ func GetIPCListener() (net.Listener, string, error) {
 }
 
 func loadEnvConfig() (Config, error) {
-	username := os.Getenv("STEAM_USER")
-	password := os.Getenv("STEAM_PASS")
-
+	username, password := os.Getenv("STEAM_USER"), os.Getenv("STEAM_PASS")
 	if username == "" || password == "" {
 		return Config{}, errors.New("STEAM_USER and STEAM_PASS environment variables are required")
 	}
@@ -545,7 +595,7 @@ func main() {
 	} else {
 		// Run initial non-interactive maintenance routine at startup
 		if driver, ok := daemon.registry.Get(440); ok {
-			if tf2Driver, ok := driver.(*tf2driver.TF2Driver); ok {
+			if tf2Driver, ok := driver.(*tf2driver.Driver); ok {
 				go func() {
 					// Add small startup delay to ensure GC is fully ready
 					time.Sleep(3 * time.Second)

@@ -24,6 +24,7 @@ const (
 	DaemonService_PlayGame_FullMethodName   = "/daemon.DaemonService/PlayGame"
 	DaemonService_ExitGame_FullMethodName   = "/daemon.DaemonService/ExitGame"
 	DaemonService_ExecAction_FullMethodName = "/daemon.DaemonService/ExecAction"
+	DaemonService_FreeMemory_FullMethodName = "/daemon.DaemonService/FreeMemory"
 )
 
 // DaemonServiceClient is the client API for DaemonService service.
@@ -35,6 +36,7 @@ type DaemonServiceClient interface {
 	PlayGame(ctx context.Context, in *PlayGameRequest, opts ...grpc.CallOption) (*PlayGameResponse, error)
 	ExitGame(ctx context.Context, in *ExitGameRequest, opts ...grpc.CallOption) (*ExitGameResponse, error)
 	ExecAction(ctx context.Context, in *ExecActionRequest, opts ...grpc.CallOption) (*ExecActionResponse, error)
+	FreeMemory(ctx context.Context, in *FreeMemoryRequest, opts ...grpc.CallOption) (*FreeMemoryResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -95,6 +97,16 @@ func (c *daemonServiceClient) ExecAction(ctx context.Context, in *ExecActionRequ
 	return out, nil
 }
 
+func (c *daemonServiceClient) FreeMemory(ctx context.Context, in *FreeMemoryRequest, opts ...grpc.CallOption) (*FreeMemoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FreeMemoryResponse)
+	err := c.cc.Invoke(ctx, DaemonService_FreeMemory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility.
@@ -104,6 +116,7 @@ type DaemonServiceServer interface {
 	PlayGame(context.Context, *PlayGameRequest) (*PlayGameResponse, error)
 	ExitGame(context.Context, *ExitGameRequest) (*ExitGameResponse, error)
 	ExecAction(context.Context, *ExecActionRequest) (*ExecActionResponse, error)
+	FreeMemory(context.Context, *FreeMemoryRequest) (*FreeMemoryResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -128,6 +141,9 @@ func (UnimplementedDaemonServiceServer) ExitGame(context.Context, *ExitGameReque
 }
 func (UnimplementedDaemonServiceServer) ExecAction(context.Context, *ExecActionRequest) (*ExecActionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExecAction not implemented")
+}
+func (UnimplementedDaemonServiceServer) FreeMemory(context.Context, *FreeMemoryRequest) (*FreeMemoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method FreeMemory not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 func (UnimplementedDaemonServiceServer) testEmbeddedByValue()                       {}
@@ -240,6 +256,24 @@ func _DaemonService_ExecAction_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_FreeMemory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FreeMemoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).FreeMemory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_FreeMemory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).FreeMemory(ctx, req.(*FreeMemoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +300,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExecAction",
 			Handler:    _DaemonService_ExecAction_Handler,
+		},
+		{
+			MethodName: "FreeMemory",
+			Handler:    _DaemonService_FreeMemory_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

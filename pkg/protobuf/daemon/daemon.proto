@@ -10,6 +10,14 @@ service DaemonService {
   rpc PlayGame (PlayGameRequest) returns (PlayGameResponse);
   rpc ExitGame (ExitGameRequest) returns (ExitGameResponse);
   rpc ExecAction (ExecActionRequest) returns (ExecActionResponse);
+  rpc FreeMemory (FreeMemoryRequest) returns (FreeMemoryResponse);
+}
+
+message FreeMemoryRequest {}
+
+message FreeMemoryResponse {
+  string message = 1;
+  uint64 memory_bytes = 2;
 }
 
 message GetStatusRequest {}

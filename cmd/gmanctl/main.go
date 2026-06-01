@@ -58,6 +58,8 @@ func main() {
 		handleStatus(ctx, client)
 	case "stop":
 		handleStop(ctx, client)
+	case "gc":
+		handleFreeMemory(ctx, client)
 	case "play":
 		if len(os.Args) < 3 {
 			fmt.Printf("%sError: 'play' command requires an AppID. Example: gmanctl play 440%s\n", ColorRed, ColorReset)
@@ -120,6 +122,7 @@ func printUsage() {
 	fmt.Println("\nSystem Commands:")
 	fmt.Printf("  %-30s %s\n", "status", "Show daemon status, Steam connection and resource metrics")
 	fmt.Printf("  %-30s %s\n", "stop", "Stop the background daemon gracefully")
+	fmt.Printf("  %-30s %s\n", "gc", "Force manual garbage collection and free physical memory")
 	fmt.Println("\nGame Commands:")
 	fmt.Printf("  %-30s %s\n", "play <appid>", "Launch game session & initialize Game Coordinator")
 	fmt.Printf("  %-30s %s\n", "exit-game", "Close active game session, return to simple online mode")
@@ -214,6 +217,20 @@ func handleStop(ctx context.Context, client pb.DaemonServiceClient) {
 	}
 
 	fmt.Printf("%s%s%s\n", ColorGreen, resp.GetMessage(), ColorReset)
+}
+
+func handleFreeMemory(ctx context.Context, client pb.DaemonServiceClient) {
+	fmt.Printf("%sTriggering manual Garbage Collection in daemon...%s\n", ColorYellow, ColorReset)
+
+	resp, err := client.FreeMemory(ctx, &pb.FreeMemoryRequest{})
+	if err != nil {
+		fmt.Printf("%sFailed to trigger GC: %v%s\n", ColorRed, err, ColorReset)
+		return
+	}
+
+	fmt.Printf("%s%s%s\n", ColorGreen, resp.GetMessage(), ColorReset)
+	memMB := float64(resp.GetMemoryBytes()) / 1024.0 / 1024.0
+	fmt.Printf("New Memory Usage: %s%.2f MB%s\n", ColorYellow, memMB, ColorReset)
 }
 
 func handlePlay(ctx context.Context, client pb.DaemonServiceClient, appID uint32) {
