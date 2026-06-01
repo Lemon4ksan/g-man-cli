@@ -37,6 +37,7 @@ import (
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
 	pb "github.com/lemon4ksan/g-man-cli/pkg/protobuf/daemon"
+	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2"
 )
 
 // Config holds the configuration loaded from environment variables.
@@ -88,10 +89,10 @@ func NewDaemon(
 		steam.WithLogger(logger),
 		apps.WithModule(),
 		gc.WithModule(),
-		web.WithModule(web.DefaultConfig()),       // Web Trading Manager
-		schema.WithModule(schema.DefaultConfig()), // Item Schema Manager
-		tf2.WithModule(),                          // Game Coordinator session manager
-		backpack.WithModule(),                     // Backpack manager
+		web.WithModule(web.DefaultConfig()),
+		schema.WithModule(schema.DefaultConfig()),
+		tf2.WithModule(),
+		backpack.WithModule(),
 		guard.WithModule(guard.DefaultGuardConfig(cfg.SharedSecret, cfg.IdentitySecret, cfg.DeviceID)),
 	}
 
@@ -104,7 +105,7 @@ func NewDaemon(
 	gcMod := gc.From(client)
 
 	registry := game.NewRegistry()
-	if err := registry.Register(game.NewTF2Driver(client)); err != nil {
+	if err := registry.Register(tf2driver.New(client)); err != nil {
 		return nil, fmt.Errorf("failed to register TF2 driver: %w", err)
 	}
 
@@ -122,6 +123,7 @@ func NewDaemon(
 	}, nil
 }
 
+// Run starts the daemon and runs the core client services.
 func (s *Daemon) Run(ctx context.Context) error {
 	s.logger.Info("Starting core client services...")
 
@@ -145,7 +147,6 @@ func (s *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("orchestrator start failed: %w", err)
 	}
 
-	// Subscribe to auth events
 	s.sub = s.client.Bus().Subscribe(&auth.LoggedOnEvent{}, &auth.LoggedOffEvent{})
 
 	s.wg.Go(func() {
@@ -169,6 +170,7 @@ func (s *Daemon) Run(ctx context.Context) error {
 	return nil
 }
 
+// Close stops the daemon and cleans up resources.
 func (s *Daemon) Close() {
 	s.logger.Info("Stopping active game sessions...")
 	s.mu.Lock()
@@ -266,12 +268,23 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
+	appName := "Unknown Steam Game"
+	if currentApp != 0 {
+		if _, ok := s.registry.Get(currentApp); ok {
+			// Resolve name from driver
+			if currentApp == 440 {
+				appName = "Team Fortress 2"
+			}
+		}
+	}
+
 	return &pb.GetStatusResponse{
-		Connected:    connected,
-		SteamId:      steamID,
-		CurrentAppid: currentApp,
-		Uptime:       uptime,
-		MemoryBytes:  m.Alloc,
+		Connected:      connected,
+		SteamId:        steamID,
+		CurrentAppid:   currentApp,
+		CurrentAppName: appName,
+		Uptime:         uptime,
+		MemoryBytes:    m.Alloc,
 	}, nil
 }
 
@@ -279,7 +292,6 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 func (s *Daemon) StopDaemon(ctx context.Context, req *pb.StopDaemonRequest) (*pb.StopDaemonResponse, error) {
 	s.logger.Info("Stop request received from CLI client")
 
-	// Shutdown in background so the RPC returns immediately
 	go func() {
 		time.Sleep(200 * time.Millisecond)
 		s.shutdownFunc()
@@ -299,7 +311,6 @@ func (s *Daemon) PlayGame(ctx context.Context, req *pb.PlayGameRequest) (*pb.Pla
 	s.currentAppID = req.GetAppid()
 	s.mu.Unlock()
 
-	// Stop old GC session if we were playing something else
 	if oldApp != 0 && oldApp != req.GetAppid() {
 		if oldDriver, ok := s.registry.Get(oldApp); ok {
 			_ = oldDriver.OnStopGC(ctx)
@@ -314,7 +325,6 @@ func (s *Daemon) PlayGame(ctx context.Context, req *pb.PlayGameRequest) (*pb.Pla
 		return nil, fmt.Errorf("failed to play game: %w", err)
 	}
 
-	// Trigger GC startup hook if a driver exists
 	if driver, ok := s.registry.Get(req.GetAppid()); ok {
 		s.logger.Info("Initializing game coordinator session", log.Uint32("appid", req.GetAppid()))
 
@@ -384,57 +394,16 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 		)
 	}
 
-	// Handle direct generic action "inventory" to read backpack
-	if req.GetAction() == "inventory" || req.GetAction() == "list-backpack" {
-		items, err := driver.InventoryProvider().GetInventory(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get inventory: %w", err)
-		}
-
-		pbItems := make([]*pb.Item, len(items))
-		for i, item := range items {
-			pbItems[i] = &pb.Item{
-				AssetId:     item.AssetID,
-				DefIndex:    item.DefIndex,
-				Quality:     item.Quality,
-				Quantity:    item.Quantity,
-				IsTradable:  item.IsTradable,
-				IsCraftable: item.IsCraftable,
-				Attributes:  item.Attributes,
-			}
-		}
-
-		return &pb.ExecActionResponse{
-			Message: fmt.Sprintf("Retrieved %d items.", len(items)),
-			Items:   pbItems,
-		}, nil
-	}
-
-	// Otherwise, delegate to driver action exec
-	msg, err := driver.InventoryProvider().ExecuteAction(ctx, req.GetAction(), req.GetParams())
+	// Delegate execution entirely to the game-specific driver.
+	// It returns a formatted response or inventory table as a direct text block.
+	details, err := driver.InventoryProvider().ExecuteAction(ctx, req.GetAction(), req.GetParams())
 	if err != nil {
 		return nil, fmt.Errorf("action execution failed: %w", err)
 	}
 
-	// Retrieve updated inventory to show state transition
-	items, _ := driver.InventoryProvider().GetInventory(ctx)
-
-	pbItems := make([]*pb.Item, len(items))
-	for i, item := range items {
-		pbItems[i] = &pb.Item{
-			AssetId:     item.AssetID,
-			DefIndex:    item.DefIndex,
-			Quality:     item.Quality,
-			Quantity:    item.Quantity,
-			IsTradable:  item.IsTradable,
-			IsCraftable: item.IsCraftable,
-			Attributes:  item.Attributes,
-		}
-	}
-
 	return &pb.ExecActionResponse{
-		Message: msg,
-		Items:   pbItems,
+		Message: "Operation completed successfully.",
+		Details: details,
 	}, nil
 }
 
@@ -473,7 +442,6 @@ func GetIPCListener() (net.Listener, string, error) {
 			return nil, "", fmt.Errorf("failed to remove stale socket: %w", err)
 		}
 
-		// Ensure socket directory exists
 		if err := os.MkdirAll(filepath.Dir(addr), 0o755); err != nil {
 			return nil, "", fmt.Errorf("failed to create socket directory: %w", err)
 		}
@@ -543,7 +511,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup gRPC Server
 	grpcServer := grpc.NewServer()
 	pb.RegisterDaemonServiceServer(grpcServer, daemon)
 
@@ -558,14 +525,12 @@ func main() {
 		log.String("address", path),
 	)
 
-	// Run gRPC server in background
 	go func() {
 		if err := grpcServer.Serve(listener); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			logger.Error("gRPC server error", log.Err(err))
 		}
 	}()
 
-	// Signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -575,20 +540,30 @@ func main() {
 		shutdownFunc()
 	}()
 
-	// Run bot services
 	if err := daemon.Run(shutdownCtx); err != nil {
 		logger.Error("Daemon run failed", log.Err(err))
 	} else {
-		// Wait for context cancellation
+		// Run initial non-interactive maintenance routine at startup
+		if driver, ok := daemon.registry.Get(440); ok {
+			if tf2Driver, ok := driver.(*tf2driver.TF2Driver); ok {
+				go func() {
+					// Add small startup delay to ensure GC is fully ready
+					time.Sleep(3 * time.Second)
+
+					if err := tf2Driver.RunMaintenance(shutdownCtx, logger); err != nil {
+						logger.Error("Startup inventory maintenance failed", log.Err(err))
+					}
+				}()
+			}
+		}
+
 		<-shutdownCtx.Done()
 	}
 
-	// Graceful Shutdown
 	logger.Info("Initiating graceful shutdown...")
 	grpcServer.GracefulStop()
 	daemon.Close()
 
-	// Clean up socket file if we used Unix socket
 	if listener.Addr().Network() == "unix" {
 		_ = os.Remove(path)
 		logger.Info("Removed Unix socket file", log.String("path", path))

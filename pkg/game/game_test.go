@@ -2,7 +2,7 @@
 // Use of this source code is governed by aBSD-style
 // license that can be found in the LICENSE file.
 
-package game
+package game_test
 
 import (
 	"context"
@@ -17,6 +17,9 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/lemon4ksan/g-man-cli/pkg/game"
+	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2"
 )
 
 func TestGameRegistry(t *testing.T) {
@@ -24,8 +27,8 @@ func TestGameRegistry(t *testing.T) {
 	client, err := steam.NewClient(cfg)
 	require.NoError(t, err)
 
-	r := NewRegistry()
-	driver := NewTF2Driver(client)
+	r := game.NewRegistry()
+	driver := tf2driver.New(client)
 
 	// Initial registry is empty
 	_, found := r.Get(440)
@@ -70,7 +73,7 @@ func TestTF2DriverLifecycleAndQueries(t *testing.T) {
 
 	defer client.Close()
 
-	d := NewTF2Driver(client)
+	d := tf2driver.New(client)
 	ctx := context.Background()
 
 	// Test basic hooks
@@ -92,7 +95,7 @@ func TestTF2DriverActionErrors(t *testing.T) {
 	client, err := steam.NewClient(cfg) // Modules not registered
 	require.NoError(t, err)
 
-	d := NewTF2Driver(client)
+	d := tf2driver.New(client)
 	ctx := context.Background()
 
 	// Operations should fail since the tf2 module is missing in the steam client

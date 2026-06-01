@@ -20,6 +20,7 @@ message GetStatusResponse {
   uint32 current_appid = 3;
   string uptime = 4;
   uint64 memory_bytes = 5;
+  string current_app_name = 6;
 }
 
 message StopDaemonRequest {}
@@ -61,4 +62,5 @@ message ExecActionRequest {
 message ExecActionResponse {
   string message = 1;
   repeated Item items = 2;
+  string details = 3;
 }

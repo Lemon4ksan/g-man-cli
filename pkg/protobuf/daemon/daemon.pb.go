@@ -58,14 +58,15 @@ func (*GetStatusRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetStatusResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Connected     bool                   `protobuf:"varint,1,opt,name=connected,proto3" json:"connected,omitempty"`
-	SteamId       string                 `protobuf:"bytes,2,opt,name=steam_id,json=steamId,proto3" json:"steam_id,omitempty"`
-	CurrentAppid  uint32                 `protobuf:"varint,3,opt,name=current_appid,json=currentAppid,proto3" json:"current_appid,omitempty"`
-	Uptime        string                 `protobuf:"bytes,4,opt,name=uptime,proto3" json:"uptime,omitempty"`
-	MemoryBytes   uint64                 `protobuf:"varint,5,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Connected      bool                   `protobuf:"varint,1,opt,name=connected,proto3" json:"connected,omitempty"`
+	SteamId        string                 `protobuf:"bytes,2,opt,name=steam_id,json=steamId,proto3" json:"steam_id,omitempty"`
+	CurrentAppid   uint32                 `protobuf:"varint,3,opt,name=current_appid,json=currentAppid,proto3" json:"current_appid,omitempty"`
+	Uptime         string                 `protobuf:"bytes,4,opt,name=uptime,proto3" json:"uptime,omitempty"`
+	MemoryBytes    uint64                 `protobuf:"varint,5,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	CurrentAppName string                 `protobuf:"bytes,6,opt,name=current_app_name,json=currentAppName,proto3" json:"current_app_name,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetStatusResponse) Reset() {
@@ -131,6 +132,13 @@ func (x *GetStatusResponse) GetMemoryBytes() uint64 {
 		return x.MemoryBytes
 	}
 	return 0
+}
+
+func (x *GetStatusResponse) GetCurrentAppName() string {
+	if x != nil {
+		return x.CurrentAppName
+	}
+	return ""
 }
 
 type StopDaemonRequest struct {
@@ -537,6 +545,7 @@ type ExecActionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
 	Items         []*Item                `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	Details       string                 `protobuf:"bytes,3,opt,name=details,proto3" json:"details,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -585,18 +594,26 @@ func (x *ExecActionResponse) GetItems() []*Item {
 	return nil
 }
 
+func (x *ExecActionResponse) GetDetails() string {
+	if x != nil {
+		return x.Details
+	}
+	return ""
+}
+
 var File_pkg_protobuf_daemon_daemon_proto protoreflect.FileDescriptor
 
 const file_pkg_protobuf_daemon_daemon_proto_rawDesc = "" +
 	"\n" +
 	" pkg/protobuf/daemon/daemon.proto\x12\x06daemon\"\x12\n" +
-	"\x10GetStatusRequest\"\xac\x01\n" +
+	"\x10GetStatusRequest\"\xd6\x01\n" +
 	"\x11GetStatusResponse\x12\x1c\n" +
 	"\tconnected\x18\x01 \x01(\bR\tconnected\x12\x19\n" +
 	"\bsteam_id\x18\x02 \x01(\tR\asteamId\x12#\n" +
 	"\rcurrent_appid\x18\x03 \x01(\rR\fcurrentAppid\x12\x16\n" +
 	"\x06uptime\x18\x04 \x01(\tR\x06uptime\x12!\n" +
-	"\fmemory_bytes\x18\x05 \x01(\x04R\vmemoryBytes\"\x13\n" +
+	"\fmemory_bytes\x18\x05 \x01(\x04R\vmemoryBytes\x12(\n" +
+	"\x10current_app_name\x18\x06 \x01(\tR\x0ecurrentAppName\"\x13\n" +
 	"\x11StopDaemonRequest\".\n" +
 	"\x12StopDaemonResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"'\n" +
@@ -627,10 +644,11 @@ const file_pkg_protobuf_daemon_daemon_proto_rawDesc = "" +
 	"\x06params\x18\x03 \x03(\v2%.daemon.ExecActionRequest.ParamsEntryR\x06params\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"R\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"l\n" +
 	"\x12ExecActionResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\"\n" +
-	"\x05items\x18\x02 \x03(\v2\f.daemon.ItemR\x05items2\xd9\x02\n" +
+	"\x05items\x18\x02 \x03(\v2\f.daemon.ItemR\x05items\x12\x18\n" +
+	"\adetails\x18\x03 \x01(\tR\adetails2\xd9\x02\n" +
 	"\rDaemonService\x12@\n" +
 	"\tGetStatus\x12\x18.daemon.GetStatusRequest\x1a\x19.daemon.GetStatusResponse\x12C\n" +
 	"\n" +

@@ -13,11 +13,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
-	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
-	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -196,8 +193,7 @@ func handleStatus(ctx context.Context, client pb.DaemonServiceClient) {
 
 	gameStr := fmt.Sprintf("%sNone%s", ColorGray, ColorReset)
 	if resp.GetCurrentAppid() != 0 {
-		gameName := resolveAppName(resp.GetCurrentAppid())
-		gameStr = fmt.Sprintf("%s%d (%s)%s", ColorGreen, resp.GetCurrentAppid(), gameName, ColorReset)
+		gameStr = fmt.Sprintf("%s%d (%s)%s", ColorGreen, resp.GetCurrentAppid(), resp.GetCurrentAppName(), ColorReset)
 	}
 
 	fmt.Printf("Active Game:      %s\n", gameStr)
@@ -221,8 +217,7 @@ func handleStop(ctx context.Context, client pb.DaemonServiceClient) {
 }
 
 func handlePlay(ctx context.Context, client pb.DaemonServiceClient, appID uint32) {
-	appName := resolveAppName(appID)
-	fmt.Printf("%sLaunching session for game: %s%d (%s)%s...\n", ColorCyan, ColorBold, appID, appName, ColorReset)
+	fmt.Printf("%sLaunching session for game AppID %d...\n", ColorCyan, appID)
 
 	resp, err := client.PlayGame(ctx, &pb.PlayGameRequest{Appid: appID})
 	if err != nil {
@@ -253,7 +248,7 @@ func handleExec(
 	params map[string]string,
 ) {
 	fmt.Printf(
-		"%sExecuting action %s%q%s on game %s%d%s...\n",
+		"%sExecuting action %s%q%s on game AppID %s%d%s...\n",
 		ColorCyan,
 		ColorBold,
 		action,
@@ -276,79 +271,7 @@ func handleExec(
 	fmt.Printf("\n%s%sAction completed! Result message:%s\n", ColorBold, ColorGreen, ColorReset)
 	fmt.Println(resp.GetMessage())
 
-	if len(resp.GetItems()) > 0 {
-		fmt.Printf("\n%s=== BACKPACK INVENTORY ===%s\n", ColorBold, ColorReset)
-
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.Debug)
-		fmt.Fprintf(
-			w,
-			"%sAsset ID\tDef Index\tQuality\tQuantity\tTradable\tCraftable\tAttributes%s\n",
-			ColorCyan,
-			ColorReset,
-		)
-
-		for _, item := range resp.GetItems() {
-			tradStr := "No"
-			if item.GetIsTradable() {
-				tradStr = "Yes"
-			}
-
-			craftStr := "No"
-			if item.GetIsCraftable() {
-				craftStr = "Yes"
-			}
-
-			attrStr := ""
-			if len(item.GetAttributes()) > 0 {
-				var parts []string
-				for k, v := range item.GetAttributes() {
-					parts = append(parts, fmt.Sprintf("%s=%s", k, v))
-				}
-
-				attrStr = strings.Join(parts, ", ")
-			}
-
-			qualityStr := resolveItemQuality(item.GetQuality())
-
-			fmt.Fprintf(w, "%d\t%d\t%s\t%d\t%s\t%s\t%s\n",
-				item.GetAssetId(),
-				item.GetDefIndex(),
-				qualityStr,
-				item.GetQuantity(),
-				tradStr,
-				craftStr,
-				attrStr,
-			)
-		}
-
-		w.Flush()
-	}
-}
-
-func resolveAppName(appID uint32) string {
-	switch appID {
-	case tf2.AppID:
-		return "Team Fortress 2"
-	default:
-		return "Unknown Steam Game"
-	}
-}
-
-func resolveItemQuality(quality uint32) string {
-	switch quality {
-	case schema.QualityNormal:
-		return "Normal"
-	case schema.QualityGenuine:
-		return "Genuine"
-	case schema.QualityVintage:
-		return "Vintage"
-	case schema.QualityUnique:
-		return "Unique"
-	case schema.QualityStrange:
-		return "Strange"
-	case schema.QualityUnusual:
-		return "Unusual"
-	default:
-		return strconv.FormatUint(uint64(quality), 10)
+	if resp.GetDetails() != "" {
+		fmt.Println(resp.GetDetails())
 	}
 }
