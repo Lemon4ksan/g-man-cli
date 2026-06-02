@@ -1,6 +1,5 @@
-// Copyright (c) 2026 Lemon4ksan All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// Copyright (c) 2026 vlhltf. All rights reserved.
+// Use of this source code is governed by a proprietary license.
 
 package main
 
@@ -62,6 +61,8 @@ type Daemon struct {
 	client       *steam.Client
 	apps         *apps.Apps
 	gc           *gc.Coordinator
+	tf2          *tf2.TF2
+	schemaMgr    *schema.Manager
 	registry     *game.Registry
 	sub          *bus.Subscription
 	orchestrator *behavior.Orchestrator
@@ -105,6 +106,8 @@ func NewDaemon(
 
 	appsMod := apps.From(client)
 	gcMod := gc.From(client)
+	tf2Mod := tf2.From(client)
+	schemaMod := schema.From(client)
 
 	registry := game.NewRegistry()
 	if err := registry.Register(tf2driver.New(client)); err != nil {
@@ -118,6 +121,8 @@ func NewDaemon(
 		client:       client,
 		apps:         appsMod,
 		gc:           gcMod,
+		tf2:          tf2Mod,
+		schemaMgr:    schemaMod,
 		registry:     registry,
 		uptimeStart:  time.Now(),
 		shutdownCtx:  shutdownCtx,
@@ -445,6 +450,31 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 			req.GetAppid(),
 			currentApp,
 		)
+	}
+
+	if req.GetAction() == "inventory" {
+		realItems := s.tf2.Cache().GetItems()
+
+		pbItems := make([]*pb.Item, len(realItems))
+		for i, ri := range realItems {
+			pbItems[i] = &pb.Item{
+				AssetId:     ri.ID,
+				OriginalId:  ri.OriginalID,
+				DefIndex:    ri.DefIndex,
+				Quality:     ri.Quality,
+				Quantity:    ri.Quantity,
+				IsTradable:  ri.IsTradable,
+				IsCraftable: ri.IsCraftable,
+				Attributes: map[string]string{
+					"sku": ri.GetSKU(s.schemaMgr.Get()),
+				},
+			}
+		}
+
+		return &pb.ExecActionResponse{
+			Message: "Inventory fetched successfully",
+			Items:   pbItems,
+		}, nil
 	}
 
 	// Delegate execution entirely to the game-specific driver.

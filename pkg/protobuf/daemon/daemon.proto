@@ -59,6 +59,7 @@ message Item {
   bool is_tradable = 5;
   bool is_craftable = 6;
   map<string, string> attributes = 7;
+  uint64 original_id = 8;
 }
 
 message ExecActionRequest {

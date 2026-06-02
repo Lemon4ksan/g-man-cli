@@ -486,6 +486,7 @@ type Item struct {
 	IsTradable    bool                   `protobuf:"varint,5,opt,name=is_tradable,json=isTradable,proto3" json:"is_tradable,omitempty"`
 	IsCraftable   bool                   `protobuf:"varint,6,opt,name=is_craftable,json=isCraftable,proto3" json:"is_craftable,omitempty"`
 	Attributes    map[string]string      `protobuf:"bytes,7,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	OriginalId    uint64                 `protobuf:"varint,8,opt,name=original_id,json=originalId,proto3" json:"original_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -567,6 +568,13 @@ func (x *Item) GetAttributes() map[string]string {
 		return x.Attributes
 	}
 	return nil
+}
+
+func (x *Item) GetOriginalId() uint64 {
+	if x != nil {
+		return x.OriginalId
+	}
+	return 0
 }
 
 type ExecActionRequest struct {
@@ -715,7 +723,7 @@ const file_pkg_protobuf_daemon_daemon_proto_rawDesc = "" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"\x11\n" +
 	"\x0fExitGameRequest\",\n" +
 	"\x10ExitGameResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\xb5\x02\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\xd6\x02\n" +
 	"\x04Item\x12\x19\n" +
 	"\basset_id\x18\x01 \x01(\x04R\aassetId\x12\x1b\n" +
 	"\tdef_index\x18\x02 \x01(\rR\bdefIndex\x12\x18\n" +
@@ -726,7 +734,9 @@ const file_pkg_protobuf_daemon_daemon_proto_rawDesc = "" +
 	"\fis_craftable\x18\x06 \x01(\bR\visCraftable\x12<\n" +
 	"\n" +
 	"attributes\x18\a \x03(\v2\x1c.daemon.Item.AttributesEntryR\n" +
-	"attributes\x1a=\n" +
+	"attributes\x12\x1f\n" +
+	"\voriginal_id\x18\b \x01(\x04R\n" +
+	"originalId\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbb\x01\n" +
