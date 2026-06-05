@@ -6,6 +6,7 @@ package tf2
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -20,6 +21,9 @@ import (
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
+	"github.com/lemon4ksan/g-man/pkg/steam/id"
+	"github.com/lemon4ksan/g-man/pkg/trading"
+	"github.com/lemon4ksan/g-man/pkg/trading/web"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
 )
@@ -126,7 +130,6 @@ func (d *Driver) RunMaintenance(ctx context.Context, logger log.Logger) error {
 	logger.InfoContext(ctx, "Scanning for duplicate weapons to smelt...")
 
 	classes := []string{"Scout", "Soldier", "Pyro", "Demoman", "Heavy", "Engineer", "Medic", "Sniper", "Spy"}
-
 	totalSmelted := 0
 
 	timer := time.NewTimer(500 * time.Millisecond)
@@ -181,7 +184,6 @@ func (d *Driver) RunMaintenance(ctx context.Context, logger log.Logger) error {
 	}
 
 	logger.InfoContext(ctx, "Duplicate weapon smelting completed", log.Int("operations", totalSmelted))
-
 	logger.InfoContext(ctx, "Condensing low-grade metals...")
 
 	crafts, err := craftMgr.CondenseMetal(ctx)
@@ -438,6 +440,303 @@ func (d *Driver) ExecuteAction(ctx context.Context, action string, params map[st
 		}
 
 		return "Successfully acknowledged all new items.", nil
+
+	case "schema":
+		schemaMod := schema.From(d.client)
+		if schemaMod == nil {
+			return "", errors.New("schema module not registered in steam client")
+		}
+
+		sch := schemaMod.Get()
+		if sch == nil {
+			return "", errors.New("schema not loaded yet")
+		}
+
+		rawBytes, err := json.Marshal(sch.Raw)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal schema: %w", err)
+		}
+
+		return string(rawBytes), nil
+
+	case "condense-metal":
+		mgr := crafting.NewManager(bpMod, tf2Mod)
+
+		crafts, err := mgr.CondenseMetal(ctx)
+		if err != nil {
+			return "", err
+		}
+
+		return strconv.Itoa(crafts), nil
+
+	case "make-change":
+		targetDefIndexStr, exists := params["target_defindex"]
+		if !exists {
+			return "", errors.New("make-change requires target_defindex parameter")
+		}
+
+		targetDefIndex, err := strconv.ParseUint(targetDefIndexStr, 10, 32)
+		if err != nil {
+			return "", err
+		}
+
+		targetCountStr, exists := params["target_count"]
+		if !exists {
+			return "", errors.New("make-change requires target_count parameter")
+		}
+
+		targetCount, err := strconv.Atoi(targetCountStr)
+		if err != nil {
+			return "", err
+		}
+
+		mgr := crafting.NewManager(bpMod, tf2Mod)
+		if err := mgr.MakeChange(ctx, uint32(targetDefIndex), targetCount); err != nil {
+			return "", err
+		}
+
+		return "Successfully made change.", nil
+
+	case "smelt-weapons":
+		class, exists := params["class"]
+		if !exists {
+			return "", errors.New("smelt-weapons requires class parameter")
+		}
+
+		mgr := crafting.NewManager(bpMod, tf2Mod)
+
+		res, err := mgr.SmeltClassWeapons(ctx, class)
+		if err != nil {
+			return "", err
+		}
+
+		data, err := json.Marshal(res)
+		if err != nil {
+			return "", err
+		}
+
+		return string(data), nil
+
+	case "send-offer":
+		paramsJSON, exists := params["offer_params"]
+		if !exists {
+			return "", errors.New("send-offer requires offer_params parameter")
+		}
+
+		var offerParams trading.OfferParams
+		if err := json.Unmarshal([]byte(paramsJSON), &offerParams); err != nil {
+			return "", fmt.Errorf("failed to unmarshal offer params: %w", err)
+		}
+
+		webMod := web.From(d.client)
+		if webMod == nil {
+			return "", errors.New("web module not registered or loaded")
+		}
+
+		offerID, err := webMod.SendOffer(ctx, offerParams)
+		if err != nil {
+			return "", fmt.Errorf("failed to send offer: %w", err)
+		}
+
+		return strconv.FormatUint(offerID, 10), nil
+
+	case "accept-offer":
+		offerIDStr, exists := params["offer_id"]
+		if !exists {
+			return "", errors.New("accept-offer requires offer_id parameter")
+		}
+
+		offerID, err := strconv.ParseUint(offerIDStr, 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid offer_id: %w", err)
+		}
+
+		webMod := web.From(d.client)
+		if webMod == nil {
+			return "", errors.New("web module not registered or loaded")
+		}
+
+		if err := webMod.AcceptOffer(ctx, offerID); err != nil {
+			return "", fmt.Errorf("failed to accept offer: %w", err)
+		}
+
+		return fmt.Sprintf("Successfully accepted offer %d.", offerID), nil
+
+	case "decline-offer":
+		offerIDStr, exists := params["offer_id"]
+		if !exists {
+			return "", errors.New("decline-offer requires offer_id parameter")
+		}
+
+		offerID, err := strconv.ParseUint(offerIDStr, 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid offer_id: %w", err)
+		}
+
+		webMod := web.From(d.client)
+		if webMod == nil {
+			return "", errors.New("web module not registered or loaded")
+		}
+
+		return fmt.Sprintf("Successfully declined offer %d.", offerID), nil
+
+	case "cancel-offer":
+		offerIDStr, exists := params["offer_id"]
+		if !exists {
+			return "", errors.New("cancel-offer requires offer_id parameter")
+		}
+
+		offerID, err := strconv.ParseUint(offerIDStr, 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid offer_id: %w", err)
+		}
+
+		webMod := web.From(d.client)
+		if webMod == nil {
+			return "", errors.New("web module not registered or loaded")
+		}
+
+		if err := webMod.CancelOffer(ctx, offerID); err != nil {
+			return "", fmt.Errorf("failed to cancel offer: %w", err)
+		}
+
+		return fmt.Sprintf("Successfully cancelled offer %d.", offerID), nil
+
+	case "check-escrow":
+		offerJSON, exists := params["offer"]
+		if !exists {
+			return "", errors.New("check-escrow requires offer parameter")
+		}
+
+		var offer trading.TradeOffer
+		if err := json.Unmarshal([]byte(offerJSON), &offer); err != nil {
+			return "", fmt.Errorf("failed to unmarshal offer: %w", err)
+		}
+
+		webMod := web.From(d.client)
+		if webMod == nil {
+			return "", errors.New("web module not registered or loaded")
+		}
+
+		hasEscrow, err := webMod.CheckEscrow(ctx, &offer)
+		if err != nil {
+			return "", fmt.Errorf("failed to check escrow: %w", err)
+		}
+
+		return strconv.FormatBool(hasEscrow), nil
+
+	case "craft":
+		recipeStr, exists := params["recipe"]
+		if !exists {
+			return "", errors.New("craft requires recipe parameter")
+		}
+
+		recipe, err := strconv.ParseInt(recipeStr, 10, 16)
+		if err != nil {
+			return "", fmt.Errorf("invalid recipe: %w", err)
+		}
+
+		itemsStr, exists := params["items"]
+		if !exists {
+			return "", errors.New("craft requires items parameter")
+		}
+
+		var items []uint64
+		if err := json.Unmarshal([]byte(itemsStr), &items); err != nil {
+			return "", fmt.Errorf("invalid items: %w", err)
+		}
+
+		created, err := tf2Mod.Craft(ctx, items, int16(recipe))
+		if err != nil {
+			return "", fmt.Errorf("GC craft failed: %w", err)
+		}
+
+		createdBytes, err := json.Marshal(created)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal created items: %w", err)
+		}
+
+		return string(createdBytes), nil
+
+	case "get-partner-inventory":
+		partnerIDStr, exists := params["partner_id"]
+		if !exists {
+			return "", errors.New("get-partner-inventory requires partner_id parameter")
+		}
+
+		partnerID := id.Parse(partnerIDStr)
+		if !partnerID.IsValid() {
+			return "", fmt.Errorf("invalid partner_id: %s", partnerIDStr)
+		}
+
+		webMod := web.From(d.client)
+		if webMod == nil {
+			return "", errors.New("web module not registered or loaded")
+		}
+
+		items, err := webMod.GetPartnerInventory(ctx, partnerID)
+		if err != nil {
+			return "", err
+		}
+
+		itemsBytes, err := json.Marshal(items)
+		if err != nil {
+			return "", err
+		}
+
+		return string(itemsBytes), nil
+
+	case "active-offers":
+		webMod := web.From(d.client)
+		if webMod == nil {
+			return "", errors.New("web module not registered or loaded")
+		}
+
+		pollData := webMod.GetPollData()
+
+		var activeOffers []*trading.TradeOffer
+
+		for offerID, state := range pollData.Received {
+			if state == trading.OfferStateActive || state == trading.OfferStateCreatedNeedsConfirmation {
+				offer, err := webMod.GetOffer(ctx, offerID)
+				if err == nil && offer != nil {
+					activeOffers = append(activeOffers, offer)
+				}
+			}
+		}
+
+		data, err := json.Marshal(activeOffers)
+		if err != nil {
+			return "", err
+		}
+
+		return string(data), nil
+
+	case "active-sent-offers":
+		webMod := web.From(d.client)
+		if webMod == nil {
+			return "", errors.New("web module not registered or loaded")
+		}
+
+		pollData := webMod.GetPollData()
+
+		var activeSentOffers []*trading.TradeOffer
+
+		for offerID, state := range pollData.Sent {
+			if state == trading.OfferStateActive || state == trading.OfferStateCreatedNeedsConfirmation {
+				offer, err := webMod.GetOffer(ctx, offerID)
+				if err == nil && offer != nil {
+					activeSentOffers = append(activeSentOffers, offer)
+				}
+			}
+		}
+
+		data, err := json.Marshal(activeSentOffers)
+		if err != nil {
+			return "", err
+		}
+
+		return string(data), nil
 
 	default:
 		return "", fmt.Errorf("unsupported action for official TF2 module: %s", action)

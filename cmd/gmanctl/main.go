@@ -50,11 +50,25 @@ func main() {
 
 	command := os.Args[1]
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
 
-	conn, err := GetIPCConnection(ctx)
+	if command == "events" {
+		ctx, cancel = context.WithCancel(context.Background())
+	} else {
+		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	}
+
+	defer cancel()
+
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	conn, err := GetIPCConnection(dialCtx)
+
+	dialCancel()
+
 	if err != nil {
-		cancel()
 		fmt.Fprintf(os.Stderr, "%sError connecting to daemon: %v%s\n", ColorRed, err, ColorReset)
 		fmt.Fprintf(os.Stderr, "%sIs the daemon 'g-mand' running?%s\n", ColorYellow, ColorReset)
 
@@ -63,7 +77,6 @@ func main() {
 		return
 	}
 
-	defer cancel()
 	defer conn.Close()
 
 	client := pb.NewDaemonServiceClient(conn)
@@ -75,6 +88,8 @@ func main() {
 		handleStop(ctx, client)
 	case "gc":
 		handleFreeMemory(ctx, client)
+	case "events":
+		handleStreamEvents(ctx, client)
 	case "play":
 		if len(os.Args) < 3 {
 			fmt.Printf("%sError: 'play' command requires an AppID. Example: gmanctl play 440%s\n", ColorRed, ColorReset)
@@ -133,6 +148,97 @@ func main() {
 
 		handleExec(ctx, client, uint32(appID), action, params)
 
+	case "update-prices":
+		if len(os.Args) < 3 {
+			fmt.Printf(
+				"%sError: 'update-prices' command requires at least one price entry. Example: gmanctl update-prices \"5021;6=1,0,1,0.11\"%s\n",
+				ColorRed,
+				ColorReset,
+			)
+
+			exitCode = 1
+
+			return
+		}
+
+		prices := make(map[string]*pb.ManualPriceEntry)
+		for _, arg := range os.Args[2:] {
+			parts := strings.SplitN(arg, "=", 2)
+			if len(parts) != 2 {
+				fmt.Printf(
+					"%sError: Invalid price format %q. Expected: sku=buy_keys,buy_metal,sell_keys,sell_metal%s\n",
+					ColorRed,
+					arg,
+					ColorReset,
+				)
+
+				exitCode = 1
+
+				return
+			}
+
+			sku := parts[0]
+
+			priceVals := strings.Split(parts[1], ",")
+			if len(priceVals) != 4 {
+				fmt.Printf(
+					"%sError: Invalid price values %q. Expected 4 comma-separated values (buy_keys,buy_metal,sell_keys,sell_metal)%s\n",
+					ColorRed,
+					parts[1],
+					ColorReset,
+				)
+
+				exitCode = 1
+
+				return
+			}
+
+			buyKeys, err := strconv.ParseUint(priceVals[0], 10, 32)
+			if err != nil {
+				fmt.Printf("%sError: Invalid buy_keys %q: %v%s\n", ColorRed, priceVals[0], err, ColorReset)
+
+				exitCode = 1
+
+				return
+			}
+
+			buyMetal, err := strconv.ParseFloat(priceVals[1], 64)
+			if err != nil {
+				fmt.Printf("%sError: Invalid buy_metal %q: %v%s\n", ColorRed, priceVals[1], err, ColorReset)
+
+				exitCode = 1
+
+				return
+			}
+
+			sellKeys, err := strconv.ParseUint(priceVals[2], 10, 32)
+			if err != nil {
+				fmt.Printf("%sError: Invalid sell_keys %q: %v%s\n", ColorRed, priceVals[2], err, ColorReset)
+
+				exitCode = 1
+
+				return
+			}
+
+			sellMetal, err := strconv.ParseFloat(priceVals[3], 64)
+			if err != nil {
+				fmt.Printf("%sError: Invalid sell_metal %q: %v%s\n", ColorRed, priceVals[3], err, ColorReset)
+
+				exitCode = 1
+
+				return
+			}
+
+			prices[sku] = &pb.ManualPriceEntry{
+				BuyKeys:   uint32(buyKeys),
+				BuyMetal:  buyMetal,
+				SellKeys:  uint32(sellKeys),
+				SellMetal: sellMetal,
+			}
+		}
+
+		handleUpdatePrices(ctx, client, prices)
+
 	case "help":
 		printUsage()
 	default:
@@ -153,14 +259,18 @@ func printUsage() {
 	fmt.Printf("  %-30s %s\n", "status", "Show daemon status, Steam connection and resource metrics")
 	fmt.Printf("  %-30s %s\n", "stop", "Stop the background daemon gracefully")
 	fmt.Printf("  %-30s %s\n", "gc", "Force manual garbage collection and free physical memory")
+	fmt.Printf("  %-30s %s\n", "events", "Stream real-time daemon and game coordinator events")
 	fmt.Println("\nGame Commands:")
 	fmt.Printf("  %-30s %s\n", "play <appid>", "Launch game session & initialize Game Coordinator")
 	fmt.Printf("  %-30s %s\n", "exit-game", "Close active game session, return to simple online mode")
 	fmt.Println("\nAction Commands:")
 	fmt.Printf("  %-30s %s\n", "exec <appid> <action> [params]", "Execute game action (e.g., exec 440 craft-metal)")
 	fmt.Printf("  %-30s %s\n", "exec <appid> inventory", "Quick shortcut to query game backpack items")
+	fmt.Printf("  %-30s %s\n", "update-prices <entry> [entry...]", "Update manual pricing database entries")
 	fmt.Println("\nGlobal Parameters:")
 	fmt.Println("  Arguments for 'exec' actions can be passed in key=value format (e.g., type=scrap).")
+	fmt.Println("  Arguments for 'update-prices' are formatted as: sku=buy_keys,buy_metal,sell_keys,sell_metal")
+	fmt.Println("  Example: gmanctl update-prices \"5021;6=1,0,1,0.11\"")
 }
 
 func GetIPCConnection(ctx context.Context) (*grpc.ClientConn, error) {
@@ -320,5 +430,63 @@ func handleExec(
 
 	if resp.GetDetails() != "" {
 		fmt.Println(resp.GetDetails())
+	}
+}
+
+func handleStreamEvents(ctx context.Context, client pb.DaemonServiceClient) {
+	fmt.Printf("%sStreaming real-time daemon events... (Press Ctrl+C to exit)%s\n\n", ColorCyan, ColorReset)
+
+	stream, err := client.StreamEvents(ctx, &pb.StreamEventsRequest{})
+	if err != nil {
+		fmt.Printf("%sFailed to start event stream: %v%s\n", ColorRed, err, ColorReset)
+		return
+	}
+
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+
+			fmt.Printf("%sStream connection lost: %v%s\n", ColorRed, err, ColorReset)
+
+			return
+		}
+
+		t := time.Unix(resp.GetTimestamp(), 0).Format("15:04:05")
+
+		evType := resp.GetEventType()
+		if idx := strings.LastIndex(evType, "."); idx != -1 {
+			evType = evType[idx+1:]
+		}
+
+		evType = strings.TrimPrefix(evType, "*")
+
+		fmt.Printf("[%s] %s%s%s: %s\n",
+			t,
+			ColorGreen,
+			evType,
+			ColorReset,
+			resp.GetPayloadJson(),
+		)
+	}
+}
+
+func handleUpdatePrices(ctx context.Context, client pb.DaemonServiceClient, prices map[string]*pb.ManualPriceEntry) {
+	fmt.Printf("%sSending price updates to daemon...%s\n", ColorCyan, ColorReset)
+
+	resp, err := client.UpdateManualPrices(ctx, &pb.UpdateManualPricesRequest{
+		Prices: prices,
+	})
+	if err != nil {
+		fmt.Printf("%sFailed to update prices: %v%s\n", ColorRed, err, ColorReset)
+		return
+	}
+
+	if resp.GetSuccess() {
+		fmt.Printf("%s%s%s\n", ColorGreen, resp.GetMessage(), ColorReset)
+	} else {
+		fmt.Printf("%sFailed: %s%s\n", ColorRed, resp.GetMessage(), ColorReset)
 	}
 }

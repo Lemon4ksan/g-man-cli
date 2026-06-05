@@ -697,6 +697,274 @@ func (x *ExecActionResponse) GetDetails() string {
 	return ""
 }
 
+type StreamEventsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamEventsRequest) Reset() {
+	*x = StreamEventsRequest{}
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamEventsRequest) ProtoMessage() {}
+
+func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamEventsRequest.ProtoReflect.Descriptor instead.
+func (*StreamEventsRequest) Descriptor() ([]byte, []int) {
+	return file_pkg_protobuf_daemon_daemon_proto_rawDescGZIP(), []int{13}
+}
+
+type StreamEventsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EventId       string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	EventType     string                 `protobuf:"bytes,2,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	PayloadJson   string                 `protobuf:"bytes,3,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	Timestamp     int64                  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamEventsResponse) Reset() {
+	*x = StreamEventsResponse{}
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamEventsResponse) ProtoMessage() {}
+
+func (x *StreamEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamEventsResponse.ProtoReflect.Descriptor instead.
+func (*StreamEventsResponse) Descriptor() ([]byte, []int) {
+	return file_pkg_protobuf_daemon_daemon_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *StreamEventsResponse) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *StreamEventsResponse) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *StreamEventsResponse) GetPayloadJson() string {
+	if x != nil {
+		return x.PayloadJson
+	}
+	return ""
+}
+
+func (x *StreamEventsResponse) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+type ManualPriceEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BuyKeys       uint32                 `protobuf:"varint,1,opt,name=buy_keys,json=buyKeys,proto3" json:"buy_keys,omitempty"`
+	BuyMetal      float64                `protobuf:"fixed64,2,opt,name=buy_metal,json=buyMetal,proto3" json:"buy_metal,omitempty"`
+	SellKeys      uint32                 `protobuf:"varint,3,opt,name=sell_keys,json=sellKeys,proto3" json:"sell_keys,omitempty"`
+	SellMetal     float64                `protobuf:"fixed64,4,opt,name=sell_metal,json=sellMetal,proto3" json:"sell_metal,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ManualPriceEntry) Reset() {
+	*x = ManualPriceEntry{}
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ManualPriceEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ManualPriceEntry) ProtoMessage() {}
+
+func (x *ManualPriceEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ManualPriceEntry.ProtoReflect.Descriptor instead.
+func (*ManualPriceEntry) Descriptor() ([]byte, []int) {
+	return file_pkg_protobuf_daemon_daemon_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ManualPriceEntry) GetBuyKeys() uint32 {
+	if x != nil {
+		return x.BuyKeys
+	}
+	return 0
+}
+
+func (x *ManualPriceEntry) GetBuyMetal() float64 {
+	if x != nil {
+		return x.BuyMetal
+	}
+	return 0
+}
+
+func (x *ManualPriceEntry) GetSellKeys() uint32 {
+	if x != nil {
+		return x.SellKeys
+	}
+	return 0
+}
+
+func (x *ManualPriceEntry) GetSellMetal() float64 {
+	if x != nil {
+		return x.SellMetal
+	}
+	return 0
+}
+
+type UpdateManualPricesRequest struct {
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	Prices        map[string]*ManualPriceEntry `protobuf:"bytes,1,rep,name=prices,proto3" json:"prices,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateManualPricesRequest) Reset() {
+	*x = UpdateManualPricesRequest{}
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateManualPricesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateManualPricesRequest) ProtoMessage() {}
+
+func (x *UpdateManualPricesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateManualPricesRequest.ProtoReflect.Descriptor instead.
+func (*UpdateManualPricesRequest) Descriptor() ([]byte, []int) {
+	return file_pkg_protobuf_daemon_daemon_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *UpdateManualPricesRequest) GetPrices() map[string]*ManualPriceEntry {
+	if x != nil {
+		return x.Prices
+	}
+	return nil
+}
+
+type UpdateManualPricesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateManualPricesResponse) Reset() {
+	*x = UpdateManualPricesResponse{}
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateManualPricesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateManualPricesResponse) ProtoMessage() {}
+
+func (x *UpdateManualPricesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pkg_protobuf_daemon_daemon_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateManualPricesResponse.ProtoReflect.Descriptor instead.
+func (*UpdateManualPricesResponse) Descriptor() ([]byte, []int) {
+	return file_pkg_protobuf_daemon_daemon_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *UpdateManualPricesResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *UpdateManualPricesResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_pkg_protobuf_daemon_daemon_proto protoreflect.FileDescriptor
 
 const file_pkg_protobuf_daemon_daemon_proto_rawDesc = "" +
@@ -750,7 +1018,28 @@ const file_pkg_protobuf_daemon_daemon_proto_rawDesc = "" +
 	"\x12ExecActionResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\"\n" +
 	"\x05items\x18\x02 \x03(\v2\f.daemon.ItemR\x05items\x12\x18\n" +
-	"\adetails\x18\x03 \x01(\tR\adetails2\x9e\x03\n" +
+	"\adetails\x18\x03 \x01(\tR\adetails\"\x15\n" +
+	"\x13StreamEventsRequest\"\x91\x01\n" +
+	"\x14StreamEventsResponse\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x02 \x01(\tR\teventType\x12!\n" +
+	"\fpayload_json\x18\x03 \x01(\tR\vpayloadJson\x12\x1c\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"\x86\x01\n" +
+	"\x10ManualPriceEntry\x12\x19\n" +
+	"\bbuy_keys\x18\x01 \x01(\rR\abuyKeys\x12\x1b\n" +
+	"\tbuy_metal\x18\x02 \x01(\x01R\bbuyMetal\x12\x1b\n" +
+	"\tsell_keys\x18\x03 \x01(\rR\bsellKeys\x12\x1d\n" +
+	"\n" +
+	"sell_metal\x18\x04 \x01(\x01R\tsellMetal\"\xb7\x01\n" +
+	"\x19UpdateManualPricesRequest\x12E\n" +
+	"\x06prices\x18\x01 \x03(\v2-.daemon.UpdateManualPricesRequest.PricesEntryR\x06prices\x1aS\n" +
+	"\vPricesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
+	"\x05value\x18\x02 \x01(\v2\x18.daemon.ManualPriceEntryR\x05value:\x028\x01\"P\n" +
+	"\x1aUpdateManualPricesResponse\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x18\n" +
+	"\asuccess\x18\x02 \x01(\bR\asuccess2\xc8\x04\n" +
 	"\rDaemonService\x12@\n" +
 	"\tGetStatus\x12\x18.daemon.GetStatusRequest\x1a\x19.daemon.GetStatusResponse\x12C\n" +
 	"\n" +
@@ -760,7 +1049,9 @@ const file_pkg_protobuf_daemon_daemon_proto_rawDesc = "" +
 	"\n" +
 	"ExecAction\x12\x19.daemon.ExecActionRequest\x1a\x1a.daemon.ExecActionResponse\x12C\n" +
 	"\n" +
-	"FreeMemory\x12\x19.daemon.FreeMemoryRequest\x1a\x1a.daemon.FreeMemoryResponseB1Z/github.com/lemon4ksan/g-man/pkg/protobuf/daemonb\x06proto3"
+	"FreeMemory\x12\x19.daemon.FreeMemoryRequest\x1a\x1a.daemon.FreeMemoryResponse\x12K\n" +
+	"\fStreamEvents\x12\x1b.daemon.StreamEventsRequest\x1a\x1c.daemon.StreamEventsResponse0\x01\x12[\n" +
+	"\x12UpdateManualPrices\x12!.daemon.UpdateManualPricesRequest\x1a\".daemon.UpdateManualPricesResponseB1Z/github.com/lemon4ksan/g-man/pkg/protobuf/daemonb\x06proto3"
 
 var (
 	file_pkg_protobuf_daemon_daemon_proto_rawDescOnce sync.Once
@@ -774,45 +1065,57 @@ func file_pkg_protobuf_daemon_daemon_proto_rawDescGZIP() []byte {
 	return file_pkg_protobuf_daemon_daemon_proto_rawDescData
 }
 
-var file_pkg_protobuf_daemon_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_pkg_protobuf_daemon_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_pkg_protobuf_daemon_daemon_proto_goTypes = []any{
-	(*FreeMemoryRequest)(nil),  // 0: daemon.FreeMemoryRequest
-	(*FreeMemoryResponse)(nil), // 1: daemon.FreeMemoryResponse
-	(*GetStatusRequest)(nil),   // 2: daemon.GetStatusRequest
-	(*GetStatusResponse)(nil),  // 3: daemon.GetStatusResponse
-	(*StopDaemonRequest)(nil),  // 4: daemon.StopDaemonRequest
-	(*StopDaemonResponse)(nil), // 5: daemon.StopDaemonResponse
-	(*PlayGameRequest)(nil),    // 6: daemon.PlayGameRequest
-	(*PlayGameResponse)(nil),   // 7: daemon.PlayGameResponse
-	(*ExitGameRequest)(nil),    // 8: daemon.ExitGameRequest
-	(*ExitGameResponse)(nil),   // 9: daemon.ExitGameResponse
-	(*Item)(nil),               // 10: daemon.Item
-	(*ExecActionRequest)(nil),  // 11: daemon.ExecActionRequest
-	(*ExecActionResponse)(nil), // 12: daemon.ExecActionResponse
-	nil,                        // 13: daemon.Item.AttributesEntry
-	nil,                        // 14: daemon.ExecActionRequest.ParamsEntry
+	(*FreeMemoryRequest)(nil),          // 0: daemon.FreeMemoryRequest
+	(*FreeMemoryResponse)(nil),         // 1: daemon.FreeMemoryResponse
+	(*GetStatusRequest)(nil),           // 2: daemon.GetStatusRequest
+	(*GetStatusResponse)(nil),          // 3: daemon.GetStatusResponse
+	(*StopDaemonRequest)(nil),          // 4: daemon.StopDaemonRequest
+	(*StopDaemonResponse)(nil),         // 5: daemon.StopDaemonResponse
+	(*PlayGameRequest)(nil),            // 6: daemon.PlayGameRequest
+	(*PlayGameResponse)(nil),           // 7: daemon.PlayGameResponse
+	(*ExitGameRequest)(nil),            // 8: daemon.ExitGameRequest
+	(*ExitGameResponse)(nil),           // 9: daemon.ExitGameResponse
+	(*Item)(nil),                       // 10: daemon.Item
+	(*ExecActionRequest)(nil),          // 11: daemon.ExecActionRequest
+	(*ExecActionResponse)(nil),         // 12: daemon.ExecActionResponse
+	(*StreamEventsRequest)(nil),        // 13: daemon.StreamEventsRequest
+	(*StreamEventsResponse)(nil),       // 14: daemon.StreamEventsResponse
+	(*ManualPriceEntry)(nil),           // 15: daemon.ManualPriceEntry
+	(*UpdateManualPricesRequest)(nil),  // 16: daemon.UpdateManualPricesRequest
+	(*UpdateManualPricesResponse)(nil), // 17: daemon.UpdateManualPricesResponse
+	nil,                                // 18: daemon.Item.AttributesEntry
+	nil,                                // 19: daemon.ExecActionRequest.ParamsEntry
+	nil,                                // 20: daemon.UpdateManualPricesRequest.PricesEntry
 }
 var file_pkg_protobuf_daemon_daemon_proto_depIdxs = []int32{
-	13, // 0: daemon.Item.attributes:type_name -> daemon.Item.AttributesEntry
-	14, // 1: daemon.ExecActionRequest.params:type_name -> daemon.ExecActionRequest.ParamsEntry
+	18, // 0: daemon.Item.attributes:type_name -> daemon.Item.AttributesEntry
+	19, // 1: daemon.ExecActionRequest.params:type_name -> daemon.ExecActionRequest.ParamsEntry
 	10, // 2: daemon.ExecActionResponse.items:type_name -> daemon.Item
-	2,  // 3: daemon.DaemonService.GetStatus:input_type -> daemon.GetStatusRequest
-	4,  // 4: daemon.DaemonService.StopDaemon:input_type -> daemon.StopDaemonRequest
-	6,  // 5: daemon.DaemonService.PlayGame:input_type -> daemon.PlayGameRequest
-	8,  // 6: daemon.DaemonService.ExitGame:input_type -> daemon.ExitGameRequest
-	11, // 7: daemon.DaemonService.ExecAction:input_type -> daemon.ExecActionRequest
-	0,  // 8: daemon.DaemonService.FreeMemory:input_type -> daemon.FreeMemoryRequest
-	3,  // 9: daemon.DaemonService.GetStatus:output_type -> daemon.GetStatusResponse
-	5,  // 10: daemon.DaemonService.StopDaemon:output_type -> daemon.StopDaemonResponse
-	7,  // 11: daemon.DaemonService.PlayGame:output_type -> daemon.PlayGameResponse
-	9,  // 12: daemon.DaemonService.ExitGame:output_type -> daemon.ExitGameResponse
-	12, // 13: daemon.DaemonService.ExecAction:output_type -> daemon.ExecActionResponse
-	1,  // 14: daemon.DaemonService.FreeMemory:output_type -> daemon.FreeMemoryResponse
-	9,  // [9:15] is the sub-list for method output_type
-	3,  // [3:9] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	20, // 3: daemon.UpdateManualPricesRequest.prices:type_name -> daemon.UpdateManualPricesRequest.PricesEntry
+	15, // 4: daemon.UpdateManualPricesRequest.PricesEntry.value:type_name -> daemon.ManualPriceEntry
+	2,  // 5: daemon.DaemonService.GetStatus:input_type -> daemon.GetStatusRequest
+	4,  // 6: daemon.DaemonService.StopDaemon:input_type -> daemon.StopDaemonRequest
+	6,  // 7: daemon.DaemonService.PlayGame:input_type -> daemon.PlayGameRequest
+	8,  // 8: daemon.DaemonService.ExitGame:input_type -> daemon.ExitGameRequest
+	11, // 9: daemon.DaemonService.ExecAction:input_type -> daemon.ExecActionRequest
+	0,  // 10: daemon.DaemonService.FreeMemory:input_type -> daemon.FreeMemoryRequest
+	13, // 11: daemon.DaemonService.StreamEvents:input_type -> daemon.StreamEventsRequest
+	16, // 12: daemon.DaemonService.UpdateManualPrices:input_type -> daemon.UpdateManualPricesRequest
+	3,  // 13: daemon.DaemonService.GetStatus:output_type -> daemon.GetStatusResponse
+	5,  // 14: daemon.DaemonService.StopDaemon:output_type -> daemon.StopDaemonResponse
+	7,  // 15: daemon.DaemonService.PlayGame:output_type -> daemon.PlayGameResponse
+	9,  // 16: daemon.DaemonService.ExitGame:output_type -> daemon.ExitGameResponse
+	12, // 17: daemon.DaemonService.ExecAction:output_type -> daemon.ExecActionResponse
+	1,  // 18: daemon.DaemonService.FreeMemory:output_type -> daemon.FreeMemoryResponse
+	14, // 19: daemon.DaemonService.StreamEvents:output_type -> daemon.StreamEventsResponse
+	17, // 20: daemon.DaemonService.UpdateManualPrices:output_type -> daemon.UpdateManualPricesResponse
+	13, // [13:21] is the sub-list for method output_type
+	5,  // [5:13] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_pkg_protobuf_daemon_daemon_proto_init() }
@@ -826,7 +1129,7 @@ func file_pkg_protobuf_daemon_daemon_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pkg_protobuf_daemon_daemon_proto_rawDesc), len(file_pkg_protobuf_daemon_daemon_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

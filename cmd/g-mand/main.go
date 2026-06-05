@@ -1,10 +1,12 @@
-// Copyright (c) 2026 vlhltf. All rights reserved.
-// Use of this source code is governed by a proprietary license.
+// Copyright (c) 2026 Lemon4ksan All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
 
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,10 +16,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
@@ -43,12 +47,13 @@ import (
 
 // Config holds the configuration loaded from environment variables.
 type Config struct {
-	Username       string
-	Password       string
-	SharedSecret   string
-	IdentitySecret string
-	DeviceID       string
-	StoragePath    string
+	Username         string
+	Password         string
+	SharedSecret     string
+	IdentitySecret   string
+	DeviceID         string
+	StoragePath      string
+	ManualPricesPath string
 }
 
 // Daemon implements the DaemonService gRPC server and runs the bot loop.
@@ -475,9 +480,8 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 			Message: "Inventory fetched successfully",
 			Items:   pbItems,
 		}, nil
-	}
+	} // Delegate execution entirely to the game-specific driver.
 
-	// Delegate execution entirely to the game-specific driver.
 	// It returns a formatted response or inventory table as a direct text block.
 	details, err := driver.InventoryProvider().ExecuteAction(ctx, req.GetAction(), req.GetParams())
 	if err != nil {
@@ -487,6 +491,124 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 	return &pb.ExecActionResponse{
 		Message: "Operation completed successfully.",
 		Details: details,
+	}, nil
+}
+
+// StreamEvents broadcasts the event bus notifications as a gRPC stream.
+func (s *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonService_StreamEventsServer) error {
+	sub := s.client.Bus().Subscribe(
+		&tf2.BackpackLoadedEvent{},
+		&tf2.ItemUpdatedEvent{},
+		&tf2.ItemAcquiredEvent{},
+		&tf2.ItemRemovedEvent{},
+		&tf2.ConnectedEvent{},
+		&tf2.DisconnectedEvent{},
+		&web.NewOfferEvent{},
+		&web.OfferChangedEvent{},
+	)
+	defer sub.Unsubscribe()
+
+	s.logger.Info("Client connected to daemon event stream")
+
+	for {
+		select {
+		case <-stream.Context().Done():
+			s.logger.Info("Client disconnected from event stream")
+			return stream.Context().Err()
+		case <-s.shutdownCtx.Done():
+			return errors.New("daemon shutting down")
+		case ev, ok := <-sub.C():
+			if !ok {
+				return nil
+			}
+
+			payloadBytes, err := json.Marshal(ev)
+			if err != nil {
+				s.logger.Error("Failed to marshal event for stream", log.Err(err))
+				continue
+			}
+
+			eventType := fmt.Sprintf("%T", ev)
+			resp := &pb.StreamEventsResponse{
+				EventId:     strconv.FormatInt(time.Now().UnixNano(), 10),
+				EventType:   eventType,
+				PayloadJson: string(payloadBytes),
+				Timestamp:   time.Now().Unix(),
+			}
+
+			if err := stream.Send(resp); err != nil {
+				s.logger.Error("Failed to send event to stream", log.Err(err))
+				return err
+			}
+		}
+	}
+}
+
+type manualPriceJSONEntry struct {
+	BuyKeys   int     `json:"buy_keys"`
+	BuyMetal  float64 `json:"buy_metal"`
+	SellKeys  int     `json:"sell_keys"`
+	SellMetal float64 `json:"sell_metal"`
+}
+
+// UpdateManualPrices updates manual pricing values for items in the daemon.
+func (s *Daemon) UpdateManualPrices(
+	ctx context.Context,
+	req *pb.UpdateManualPricesRequest,
+) (*pb.UpdateManualPricesResponse, error) {
+	s.logger.Info("Update manual prices request received", log.Int("count", len(req.GetPrices())))
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prices := make(map[string]manualPriceJSONEntry)
+
+	data, err := os.ReadFile(s.cfg.ManualPricesPath)
+	if err == nil {
+		_ = json.Unmarshal(data, &prices)
+	} else if !os.IsNotExist(err) {
+		s.logger.Warn("Failed to read manual prices file", log.Err(err))
+	}
+
+	for sku, entry := range req.GetPrices() {
+		s.logger.Info("Updating manual price",
+			log.String("sku", sku),
+			log.Uint32("buy_keys", entry.GetBuyKeys()),
+			log.Float64("buy_metal", entry.GetBuyMetal()),
+			log.Uint32("sell_keys", entry.GetSellKeys()),
+			log.Float64("sell_metal", entry.GetSellMetal()),
+		)
+
+		prices[sku] = manualPriceJSONEntry{
+			BuyKeys:   int(entry.GetBuyKeys()),
+			BuyMetal:  entry.GetBuyMetal(),
+			SellKeys:  int(entry.GetSellKeys()),
+			SellMetal: entry.GetSellMetal(),
+		}
+	}
+
+	newData, err := json.MarshalIndent(prices, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal manual prices: %w", err)
+	}
+
+	dir := filepath.Dir(s.cfg.ManualPricesPath)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("failed to create directory for manual prices: %w", err)
+	}
+
+	tmpPath := s.cfg.ManualPricesPath + ".tmp"
+	if err := os.WriteFile(tmpPath, newData, 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write manual prices: %w", err)
+	}
+
+	if err := os.Rename(tmpPath, s.cfg.ManualPricesPath); err != nil {
+		return nil, fmt.Errorf("failed to save manual prices: %w", err)
+	}
+
+	return &pb.UpdateManualPricesResponse{
+		Message: fmt.Sprintf("Successfully processed %d price updates.", len(req.GetPrices())),
+		Success: true,
 	}, nil
 }
 
@@ -555,17 +677,25 @@ func loadEnvConfig() (Config, error) {
 		storagePath = "storage.json"
 	}
 
+	manualPricesPath := os.Getenv("STEAM_MANUAL_PRICES_PATH")
+	if manualPricesPath == "" {
+		manualPricesPath = "cache/tf2/manual_prices.json"
+	}
+
 	return Config{
-		Username:       username,
-		Password:       password,
-		SharedSecret:   os.Getenv("STEAM_SHARED_SECRET"),
-		IdentitySecret: os.Getenv("STEAM_IDENTITY_SECRET"),
-		DeviceID:       os.Getenv("STEAM_DEVICE_ID"),
-		StoragePath:    storagePath,
+		Username:         username,
+		Password:         password,
+		SharedSecret:     os.Getenv("STEAM_SHARED_SECRET"),
+		IdentitySecret:   os.Getenv("STEAM_IDENTITY_SECRET"),
+		DeviceID:         os.Getenv("STEAM_DEVICE_ID"),
+		StoragePath:      storagePath,
+		ManualPricesPath: manualPricesPath,
 	}, nil
 }
 
 func main() {
+	_ = godotenv.Load()
+
 	var exitCode int
 	defer func() {
 		if exitCode != 0 {

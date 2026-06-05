@@ -5,12 +5,15 @@ package daemon;
 option go_package = "github.com/lemon4ksan/g-man/pkg/protobuf/daemon";
 
 service DaemonService {
-  rpc GetStatus (GetStatusRequest) returns (GetStatusResponse);
-  rpc StopDaemon (StopDaemonRequest) returns (StopDaemonResponse);
-  rpc PlayGame (PlayGameRequest) returns (PlayGameResponse);
-  rpc ExitGame (ExitGameRequest) returns (ExitGameResponse);
-  rpc ExecAction (ExecActionRequest) returns (ExecActionResponse);
-  rpc FreeMemory (FreeMemoryRequest) returns (FreeMemoryResponse);
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  rpc StopDaemon(StopDaemonRequest) returns (StopDaemonResponse);
+  rpc PlayGame(PlayGameRequest) returns (PlayGameResponse);
+  rpc ExitGame(ExitGameRequest) returns (ExitGameResponse);
+  rpc ExecAction(ExecActionRequest) returns (ExecActionResponse);
+  rpc FreeMemory(FreeMemoryRequest) returns (FreeMemoryResponse);
+
+  rpc StreamEvents(StreamEventsRequest) returns (stream StreamEventsResponse);
+  rpc UpdateManualPrices(UpdateManualPricesRequest) returns (UpdateManualPricesResponse);
 }
 
 message FreeMemoryRequest {}
@@ -72,4 +75,29 @@ message ExecActionResponse {
   string message = 1;
   repeated Item items = 2;
   string details = 3;
+}
+
+message StreamEventsRequest {}
+
+message StreamEventsResponse {
+  string event_id = 1;
+  string event_type = 2;
+  string payload_json = 3;
+  int64 timestamp = 4;
+}
+
+message ManualPriceEntry {
+  uint32 buy_keys = 1;
+  double buy_metal = 2;
+  uint32 sell_keys = 3;
+  double sell_metal = 4;
+}
+
+message UpdateManualPricesRequest {
+  map<string, ManualPriceEntry> prices = 1;
+}
+
+message UpdateManualPricesResponse {
+  string message = 1;
+  bool success = 2;
 }
