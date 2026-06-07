@@ -794,3 +794,49 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	_, err = d.ExecuteAction(ctx, "unsupported-action", nil)
 	assert.Error(t, err)
 }
+
+func TestDriver_Actions(t *testing.T) {
+	cfg := steam.DefaultConfig()
+	client, err := steam.NewClient(cfg)
+	require.NoError(t, err)
+
+	d := New(client)
+	actions := d.Actions()
+	assert.NotEmpty(t, actions)
+
+	// Verify inventory action is in the list
+	foundInventory := false
+	for _, act := range actions {
+		if act.Name == "inventory" {
+			foundInventory = true
+			break
+		}
+	}
+
+	assert.True(t, foundInventory, "Expected 'inventory' action to be present")
+}
+
+func TestExtractQuotedString(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+		ok       bool
+	}{
+		{`"hello"`, "hello", true},
+		{`''world''`, "world", true},
+		{`“curly”`, "curly", true},
+		{`‘singlecurly’`, "singlecurly", true},
+		{`no quotes`, "", false},
+		{`"nested ''quotes''"`, "nested ''quotes''", true},
+		{`''"nested double"''`, `"nested double"`, true},
+	}
+
+	for _, tc := range tests {
+		res, ok := extractQuotedString(tc.input)
+		assert.Equal(t, tc.ok, ok, "for input: %s", tc.input)
+
+		if tc.ok {
+			assert.Equal(t, tc.expected, res, "for input: %s", tc.input)
+		}
+	}
+}

@@ -25,13 +25,15 @@ type Driver interface {
 
 // Item represents a generic item in the game's inventory.
 type Item struct {
-	AssetID     uint64            `json:"asset_id"`
-	DefIndex    uint32            `json:"def_index"`
-	Quality     uint32            `json:"quality"`
-	Quantity    uint32            `json:"quantity"`
-	IsTradable  bool              `json:"is_tradable"`
-	IsCraftable bool              `json:"is_craftable"`
-	Attributes  map[string]string `json:"attributes,omitempty"`
+	AssetID       uint64            `json:"asset_id"`
+	DefIndex      uint32            `json:"def_index"`
+	Quality       uint32            `json:"quality"`
+	Quantity      uint32            `json:"quantity"`
+	IsTradable    bool              `json:"is_tradable"`
+	IsCraftable   bool              `json:"is_craftable"`
+	Attributes    map[string]string `json:"attributes,omitempty"`
+	ImageURL      string            `json:"image_url,omitempty"`
+	ImageURLLarge string            `json:"image_url_large,omitempty"`
 }
 
 // InventoryProvider provides high-level operations for inventory interaction.
@@ -42,4 +44,21 @@ type InventoryProvider interface {
 	// ExecuteAction runs a game-specific inventory manipulation command.
 	// For example: "sort-backpack", "craft-metal", "delete-item".
 	ExecuteAction(ctx context.Context, action string, params map[string]string) (string, error)
+
+	// Actions returns a list of supported action descriptions for the driver.
+	Actions() []ActionInfo
+}
+
+// ActionParam describes a parameter for an inventory action.
+type ActionParam struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+}
+
+// ActionInfo describes an executable inventory action.
+type ActionInfo struct {
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Params      []ActionParam `json:"params,omitempty"`
 }

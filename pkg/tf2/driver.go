@@ -18,6 +18,7 @@ import (
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/crafting"
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
+	"github.com/lemon4ksan/g-man-tf2/pkg/sku"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
@@ -27,6 +28,9 @@ import (
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
 )
+
+// AppID returns the official TF2 AppID (440).
+const AppID = tf2.AppID
 
 // Driver acts as an adapter wrapping the official g-man-tf2 steam modules.
 type Driver struct {
@@ -78,6 +82,161 @@ func (d *Driver) InventoryProvider() game.InventoryProvider {
 	return d
 }
 
+// Actions returns the list of actions supported by the TF2 driver.
+func (d *Driver) Actions() []game.ActionInfo {
+	return []game.ActionInfo{
+		{
+			Name:        "inventory",
+			Description: "Fetch and list backpack items in a clean table representation",
+		},
+		{
+			Name:        "sort-backpack",
+			Description: "Sort the TF2 backpack using a specific layout or GC auto-sort",
+			Params: []game.ActionParam{
+				{
+					Name:        "type",
+					Description: "Set to 'gc' for GC auto-sort, otherwise uses G-MAN hierarchical sort",
+					Required:    false,
+				},
+				{
+					Name:        "sort_type",
+					Description: "GC sort type parameter (e.g., '3'). Only used if type=gc",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:        "maintenance",
+			Description: "Perform automated backpack maintenance (smelt duplicate weapons, condense metals, and sort backpack)",
+		},
+		{
+			Name:        "craft-metal",
+			Description: "Combine weapons or smaller metals into refined/reclaimed metal",
+			Params: []game.ActionParam{
+				{
+					Name:        "type",
+					Description: "Target metal type. 'scrap' (weapons to scrap) or 'reclaimed' (scrap to reclaimed)",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:        "delete-item",
+			Description: "Delete an item from backpack",
+			Params: []game.ActionParam{
+				{Name: "item_id", Description: "Asset ID of the item to delete", Required: true},
+			},
+		},
+		{
+			Name:        "use-item",
+			Description: "Use a tool/consumable item from backpack",
+			Params: []game.ActionParam{
+				{Name: "item_id", Description: "Asset ID of the item to use", Required: true},
+			},
+		},
+		{
+			Name:        "acknowledge-all",
+			Description: "Acknowledge all new items in the backpack",
+		},
+		{
+			Name:        "schema",
+			Description: "Dump the current TF2 items schema raw JSON payload",
+		},
+		{
+			Name:        "condense-metal",
+			Description: "Condense weapons and metal to clean up backpack space",
+		},
+		{
+			Name:        "make-change",
+			Description: "Break down higher tier metal into smaller metal",
+			Params: []game.ActionParam{
+				{
+					Name:        "target_defindex",
+					Description: "Defindex of the metal to break down (5000 for scrap, 5001 for reclaimed)",
+					Required:    true,
+				},
+				{Name: "target_count", Description: "Number of items to produce", Required: true},
+			},
+		},
+		{
+			Name:        "smelt-weapons",
+			Description: "Smelt duplicate weapons for a specific class",
+			Params: []game.ActionParam{
+				{
+					Name:        "class",
+					Description: "Class name (e.g., 'Scout', 'Soldier', 'Pyro', 'Demoman', 'Heavy', 'Engineer', 'Medic', 'Sniper', 'Spy')",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "send-offer",
+			Description: "Send a trade offer to a partner",
+			Params: []game.ActionParam{
+				{Name: "offer_params", Description: "JSON string representing OfferParams", Required: true},
+			},
+		},
+		{
+			Name:        "accept-offer",
+			Description: "Accept an incoming trade offer",
+			Params: []game.ActionParam{
+				{Name: "offer_id", Description: "Trade offer ID to accept", Required: true},
+			},
+		},
+		{
+			Name:        "decline-offer",
+			Description: "Decline an incoming trade offer",
+			Params: []game.ActionParam{
+				{Name: "offer_id", Description: "Trade offer ID to decline", Required: true},
+			},
+		},
+		{
+			Name:        "cancel-offer",
+			Description: "Cancel an outgoing trade offer",
+			Params: []game.ActionParam{
+				{Name: "offer_id", Description: "Trade offer ID to cancel", Required: true},
+			},
+		},
+		{
+			Name:        "check-escrow",
+			Description: "Check if an offer is subject to escrow",
+			Params: []game.ActionParam{
+				{Name: "offer", Description: "JSON string representing TradeOffer", Required: true},
+			},
+		},
+		{
+			Name:        "craft",
+			Description: "Execute a specific TF2 crafting recipe",
+			Params: []game.ActionParam{
+				{Name: "recipe", Description: "Recipe ID (e.g., '3' for smelt class weapons)", Required: true},
+				{Name: "items", Description: "JSON array of item asset IDs to use (e.g., '[101,102]')", Required: true},
+			},
+		},
+		{
+			Name:        "resolve-vanity-url",
+			Description: "Resolve a Steam vanity URL to a Steam64 ID",
+			Params: []game.ActionParam{
+				{Name: "url", Description: "Vanity URL to resolve", Required: true},
+			},
+		},
+		{
+			Name:        "get-partner-inventory",
+			Description: "Fetch the public Steam inventory of a trade partner",
+			Params: []game.ActionParam{
+				{Name: "partner_id", Description: "64-bit SteamID of the partner", Required: true},
+			},
+		},
+		{
+			Name:        "active-offers",
+			Description: "Get all active incoming trade offers",
+		},
+		{
+			Name:        "active-sent-offers",
+			Description: "Get all active outgoing trade offers",
+		},
+	}
+}
+
 // GetInventory fetches backpack contents directly from the official TF2 module's SOCache.
 func (d *Driver) GetInventory(ctx context.Context) ([]game.Item, error) {
 	tf2Mod, err := d.getTF2Module()
@@ -86,6 +245,25 @@ func (d *Driver) GetInventory(ctx context.Context) ([]game.Item, error) {
 	}
 
 	realItems := tf2Mod.Cache().GetItems()
+
+	slices.SortFunc(realItems, func(a, b *tf2.Item) int {
+		posA := a.Position()
+
+		posB := b.Position()
+		if posA != posB {
+			return int(posA) - int(posB)
+		}
+
+		if a.ID < b.ID {
+			return -1
+		}
+
+		if a.ID > b.ID {
+			return 1
+		}
+
+		return 0
+	})
 
 	items := make([]game.Item, len(realItems))
 	for i, ri := range realItems {
@@ -97,10 +275,25 @@ func (d *Driver) GetInventory(ctx context.Context) ([]game.Item, error) {
 			IsTradable:  ri.IsTradable,
 			IsCraftable: ri.IsCraftable,
 			Attributes: map[string]string{
-				"custom_name": ri.CustomName,
-				"custom_desc": ri.CustomDesc,
-				"sku":         ri.SKU,
+				"sku": ri.SKU,
 			},
+			ImageURL:      ri.ImageURL,
+			ImageURLLarge: ri.ImageURLLarge,
+		}
+		if ri.ImageURL != "" {
+			items[i].ImageURL = ri.ImageURL
+		}
+
+		if ri.ImageURLLarge != "" {
+			items[i].ImageURLLarge = ri.ImageURLLarge
+		}
+
+		if ri.CustomName != "" {
+			items[i].Attributes["custom_name"] = ri.CustomName
+		}
+
+		if ri.CustomDesc != "" {
+			items[i].Attributes["custom_desc"] = ri.CustomDesc
 		}
 	}
 
@@ -124,6 +317,12 @@ func (d *Driver) RunMaintenance(ctx context.Context, logger log.Logger) error {
 	}
 
 	logger.InfoContext(ctx, "Starting automated non-interactive inventory maintenance...")
+
+	logger.InfoContext(ctx, "Acknowledging all new/crafted items in the backpack...")
+
+	if err := tf2Mod.AcknowledgeAll(ctx); err != nil {
+		logger.ErrorContext(ctx, "Failed to acknowledge items", log.Err(err))
+	}
 
 	craftMgr := crafting.NewManager(bpMod, tf2Mod)
 
@@ -293,22 +492,7 @@ func (d *Driver) ExecuteAction(ctx context.Context, action string, params map[st
 			}
 
 			if qualityStr == "" {
-				switch item.Quality {
-				case 0:
-					qualityStr = "Normal"
-				case 1:
-					qualityStr = "Genuine"
-				case 3:
-					qualityStr = "Vintage"
-				case 6:
-					qualityStr = "Unique"
-				case 11:
-					qualityStr = "Strange"
-				case 13:
-					qualityStr = "Unusual"
-				default:
-					qualityStr = strconv.FormatUint(uint64(item.Quality), 10)
-				}
+				qualityStr = fallbackQualityName(uint32(item.Quality))
 			}
 
 			itemName := "Unknown Item"
@@ -658,6 +842,23 @@ func (d *Driver) ExecuteAction(ctx context.Context, action string, params map[st
 
 		return string(createdBytes), nil
 
+	case "resolve-vanity-url":
+		vanityURL, exists := params["url"]
+		if !exists {
+			return "", errors.New("resolve-vanity-url requires url parameter")
+		}
+
+		partnerID, err := id.ResolveVanityURL(ctx, d.client, vanityURL)
+		if err != nil {
+			return "", fmt.Errorf("resolve-vanity-url failed: %w", err)
+		}
+
+		if !partnerID.IsValid() {
+			return "", fmt.Errorf("invalid vanity URL: %s", vanityURL)
+		}
+
+		return partnerID.String(), nil
+
 	case "get-partner-inventory":
 		partnerIDStr, exists := params["partner_id"]
 		if !exists {
@@ -679,7 +880,92 @@ func (d *Driver) ExecuteAction(ctx context.Context, action string, params map[st
 			return "", err
 		}
 
-		itemsBytes, err := json.Marshal(items)
+		schemaMod := schema.From(d.client)
+
+		var s *schema.Schema
+		if schemaMod != nil {
+			s = schemaMod.Get()
+		}
+
+		gameItems := make([]game.Item, len(items))
+		for i, it := range items {
+			var (
+				skuStr      string
+				skuItem     *sku.Item
+				imgURL      string
+				imgURLLarge string
+			)
+
+			if s != nil {
+				skuItem = s.ItemFromEconItem(it)
+				if skuItem != nil {
+					skuStr = sku.FromObject(skuItem)
+					if schItem := s.ItemByDef(skuItem.Defindex); schItem != nil {
+						imgURL = schItem.ImageURL
+						imgURLLarge = schItem.ImageURLLarge
+					}
+				}
+			}
+
+			if skuStr == "" {
+				skuStr = "N/A"
+			}
+
+			var customName, customDesc string
+			if name, ok := extractQuotedString(it.Name); ok {
+				customName = name
+			}
+
+			for _, d := range it.Descriptions {
+				if val, ok := extractQuotedString(d.Value); ok {
+					customDesc = val
+					break
+				}
+			}
+
+			gameItems[i] = game.Item{
+				AssetID:     it.AssetID,
+				DefIndex:    uint32(skuItem.Defindex), //nolint:gosec
+				Quality:     uint32(skuItem.Quality),  //nolint:gosec
+				Quantity:    uint32(it.Amount),        //nolint:gosec
+				IsTradable:  it.Tradable,
+				IsCraftable: skuItem.Craftable,
+				Attributes: func() map[string]string {
+					attrs := map[string]string{
+						"sku":        skuStr,
+						"is_partner": "true",
+					}
+					if imgURL != "" {
+						attrs["image_url"] = imgURL
+					}
+
+					if imgURLLarge != "" {
+						attrs["image_url_large"] = imgURLLarge
+					}
+
+					if customName != "" {
+						attrs["custom_name"] = customName
+					}
+
+					if customDesc != "" {
+						attrs["custom_desc"] = customDesc
+					}
+
+					if skuItem != nil && len(skuItem.PartValues) > 0 {
+						var pairs []string
+						for k, v := range skuItem.PartValues {
+							pairs = append(pairs, fmt.Sprintf("%d:%d", k, v))
+						}
+
+						attrs["part_values"] = strings.Join(pairs, ",")
+					}
+
+					return attrs
+				}(),
+			}
+		}
+
+		itemsBytes, err := json.Marshal(gameItems)
 		if err != nil {
 			return "", err
 		}
@@ -782,4 +1068,67 @@ func GetSectionPriority(item *tf2.Item, s *schema.Schema) int {
 	}
 
 	return SectionToolsActions
+}
+
+func fallbackQualityName(quality uint32) string {
+	switch quality {
+	case 0:
+		return "Normal"
+	case 1:
+		return "Genuine"
+	case 2:
+		return "rarity2"
+	case 3:
+		return "Vintage"
+	case 4:
+		return "rarity4"
+	case 5:
+		return "Unusual"
+	case 6:
+		return "Unique"
+	case 7:
+		return "Community"
+	case 8:
+		return "Valve"
+	case 9:
+		return "Self-Made"
+	case 11:
+		return "Strange"
+	case 12:
+		return "Customized"
+	case 13:
+		return "Haunted"
+	case 14:
+		return "Collector's"
+	case 15:
+		return "Decorated Weapon"
+	default:
+		return strconv.FormatUint(uint64(quality), 10)
+	}
+}
+
+func extractQuotedString(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	// Check ASCII double quotes
+	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") && len(s) >= 2 {
+		return s[1 : len(s)-1], true
+	}
+
+	// Check ASCII double single quotes (used in TF2 custom names/descriptions from Steam Web API)
+	if strings.HasPrefix(s, "''") && strings.HasSuffix(s, "''") && len(s) >= 4 {
+		return s[2 : len(s)-2], true
+	}
+
+	// Check Unicode curly quotes (e.g. “ and ”)
+	runes := []rune(s)
+	if len(runes) >= 2 {
+		first := runes[0]
+
+		last := runes[len(runes)-1]
+		if (first == '“' && last == '”') || (first == '‘' && last == '’') {
+			return string(runes[1 : len(runes)-1]), true
+		}
+	}
+
+	return "", false
 }

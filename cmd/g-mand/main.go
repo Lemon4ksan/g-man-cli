@@ -6,694 +6,29 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"net"
+	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"runtime"
-	"runtime/debug"
-	"strconv"
-	"sync"
 	"syscall"
-	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
-	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
-	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
-	"github.com/lemon4ksan/g-man/pkg/behavior"
-	"github.com/lemon4ksan/g-man/pkg/behavior/guard"
-	"github.com/lemon4ksan/g-man/pkg/bus"
 	"github.com/lemon4ksan/g-man/pkg/log"
-	"github.com/lemon4ksan/g-man/pkg/steam"
-	"github.com/lemon4ksan/g-man/pkg/steam/auth"
-	"github.com/lemon4ksan/g-man/pkg/steam/socket"
-	"github.com/lemon4ksan/g-man/pkg/steam/sys/apps"
-	"github.com/lemon4ksan/g-man/pkg/steam/sys/directory"
-	"github.com/lemon4ksan/g-man/pkg/steam/sys/gc"
-	"github.com/lemon4ksan/g-man/pkg/storage"
 	"github.com/lemon4ksan/g-man/pkg/storage/jsonfile"
-	"github.com/lemon4ksan/g-man/pkg/trading/web"
 	"google.golang.org/grpc"
 
-	"github.com/lemon4ksan/g-man-cli/pkg/game"
 	pb "github.com/lemon4ksan/g-man-cli/pkg/protobuf/daemon"
-	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2"
 )
 
-// Config holds the configuration loaded from environment variables.
-type Config struct {
-	Username         string
-	Password         string
-	SharedSecret     string
-	IdentitySecret   string
-	DeviceID         string
-	StoragePath      string
-	ManualPricesPath string
-}
-
-// Daemon implements the DaemonService gRPC server and runs the bot loop.
-type Daemon struct {
-	pb.UnimplementedDaemonServiceServer
-
-	cfg          Config
-	store        storage.Provider
-	logger       log.Logger
-	client       *steam.Client
-	apps         *apps.Apps
-	gc           *gc.Coordinator
-	tf2          *tf2.TF2
-	schemaMgr    *schema.Manager
-	registry     *game.Registry
-	sub          *bus.Subscription
-	orchestrator *behavior.Orchestrator
-	wg           sync.WaitGroup
-
-	mu           sync.RWMutex
-	currentAppID uint32
-	uptimeStart  time.Time
-	shutdownCtx  context.Context
-	shutdownFunc context.CancelFunc
-}
-
-// NewDaemon creates a new Daemon instance with the given configuration and dependencies.
-func NewDaemon(
-	cfg Config,
-	store storage.Provider,
-	logger log.Logger,
-	shutdownCtx context.Context,
-	shutdownFunc context.CancelFunc,
-) (*Daemon, error) {
-	clientCfg := steam.DefaultConfig()
-	clientCfg.Storage = store
-
-	logger = logger.With(log.Module("daemon"))
-
-	opts := []steam.Option{
-		steam.WithLogger(logger),
-		apps.WithModule(),
-		gc.WithModule(),
-		web.WithModule(web.DefaultConfig()),
-		schema.WithModule(schema.DefaultConfig()),
-		tf2.WithModule(),
-		backpack.WithModule(),
-		guard.WithModule(guard.DefaultGuardConfig(cfg.SharedSecret, cfg.IdentitySecret, cfg.DeviceID)),
-	}
-
-	client, err := steam.NewClient(clientCfg, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("steam client initialization failed: %w", err)
-	}
-
-	appsMod := apps.From(client)
-	gcMod := gc.From(client)
-	tf2Mod := tf2.From(client)
-	schemaMod := schema.From(client)
-
-	registry := game.NewRegistry()
-	if err := registry.Register(tf2driver.New(client)); err != nil {
-		return nil, fmt.Errorf("failed to register TF2 driver: %w", err)
-	}
-
-	return &Daemon{
-		cfg:          cfg,
-		store:        store,
-		logger:       logger,
-		client:       client,
-		apps:         appsMod,
-		gc:           gcMod,
-		tf2:          tf2Mod,
-		schemaMgr:    schemaMod,
-		registry:     registry,
-		uptimeStart:  time.Now(),
-		shutdownCtx:  shutdownCtx,
-		shutdownFunc: shutdownFunc,
-	}, nil
-}
-
-// Run starts the daemon and runs the core client services.
-func (s *Daemon) Run(ctx context.Context) error {
-	s.logger.Info("Starting core client services...")
-
-	if err := s.client.Run(); err != nil {
-		return fmt.Errorf("client run failed: %w", err)
-	}
-
-	server, err := s.discoverCMServer(ctx)
-	if err != nil {
-		return fmt.Errorf("cm discovery failed: %w", err)
-	}
-
-	s.logger.Info("Optimal CM server found",
-		log.String("endpoint", server.Endpoint),
-		log.Float64("load", server.Load),
-	)
-
-	s.setupOrchestrator()
-
-	if err := s.orchestrator.Start(ctx); err != nil {
-		return fmt.Errorf("orchestrator start failed: %w", err)
-	}
-
-	// Subscribe to auth and apps events to stay in sync with auto-play status
-	s.sub = s.client.Bus().
-		Subscribe(&auth.LoggedOnEvent{}, &auth.LoggedOffEvent{}, &apps.AppLaunchedEvent{}, &apps.AppQuitEvent{})
-
-	s.wg.Go(func() {
-		s.handleEvents(ctx)
-	})
-
-	s.logger.Info("Connecting and authenticating with Steam...",
-		log.String("username", s.cfg.Username),
-	)
-
-	details := &auth.LogOnDetails{
-		AccountName: s.cfg.Username,
-		Password:    s.cfg.Password,
-	}
-	if err := s.client.ConnectAndLogin(ctx, server, details); err != nil {
-		return fmt.Errorf("connect and login failed: %w", err)
-	}
-
-	s.logger.Info("Bot logged in and fully operational")
-
-	return nil
-}
-
-// Close stops the daemon and cleans up resources.
-func (s *Daemon) Close() {
-	s.logger.Info("Stopping active game sessions...")
-	s.mu.Lock()
-	currentApp := s.currentAppID
-	s.currentAppID = 0
-	s.mu.Unlock()
-
-	if currentApp != 0 {
-		if driver, ok := s.registry.Get(currentApp); ok {
-			s.logger.Info("Sending goodbye to game coordinator...", log.Uint32("appid", currentApp))
-
-			_ = driver.OnStopGC(context.Background())
-		}
-
-		_ = s.apps.StopPlaying(context.Background())
-	}
-
-	if s.orchestrator != nil {
-		s.orchestrator.Stop()
-		s.logger.Info("Behavior orchestrator stopped")
-	}
-
-	if s.sub != nil {
-		s.sub.Unsubscribe()
-	}
-
-	s.wg.Wait()
-
-	if err := s.client.Close(); err != nil {
-		s.logger.Error("Error during client shutdown", log.Err(err))
-	} else {
-		s.logger.Info("Client session closed")
-	}
-
-	s.logger.Info("Bot shut down successfully")
-}
-
-func (s *Daemon) discoverCMServer(ctx context.Context) (socket.CMServer, error) {
-	dirCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	s.logger.Info("Discovering optimal Steam Connection Manager server...")
-	dir := directory.New(s.client.Service())
-
-	return dir.GetOptimalCMServer(dirCtx)
-}
-
-func (s *Daemon) setupOrchestrator() {
-	s.orchestrator = behavior.NewOrchestrator(s.logger, s.client.Bus())
-	guardModule := guard.From(s.client)
-
-	guardBehaviorCfg := guard.Config{
-		AutoAcceptTypes: []guard.ConfirmationType{
-			guard.ConfTypeTrade,
-			guard.ConfTypeMarket,
-			guard.ConfTypeLogin,
-		},
-		PollOnStart: true,
-	}
-
-	s.orchestrator.Install(guard.AutoAccept(guardModule, guardBehaviorCfg))
-}
-
-func (s *Daemon) handleEvents(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event, ok := <-s.sub.C():
-			if !ok {
-				return
-			}
-
-			switch ev := event.(type) {
-			case *auth.LoggedOnEvent:
-				s.logger.Info("Login successful", log.Uint64("steam_id", ev.SteamID))
-			case *auth.LoggedOffEvent:
-				s.logger.Info("Logged off")
-			case *apps.AppLaunchedEvent:
-				s.mu.Lock()
-				s.currentAppID = ev.AppID
-				s.mu.Unlock()
-				s.logger.Info("Detected game launched", log.Uint32("appid", ev.AppID))
-				// Initialize GC session if a driver exists
-				if driver, ok := s.registry.Get(ev.AppID); ok {
-					s.logger.Info(
-						"Initializing game coordinator session for auto-launched game",
-						log.Uint32("appid", ev.AppID),
-					)
-
-					if err := driver.OnStartGC(ctx); err != nil {
-						s.logger.Error("GC startup failed on driver", log.Uint32("appid", ev.AppID), log.Err(err))
-					}
-				}
-
-			case *apps.AppQuitEvent:
-				s.mu.Lock()
-				if s.currentAppID == ev.AppID {
-					s.currentAppID = 0
-				}
-
-				s.mu.Unlock()
-				s.logger.Info("Detected game quit", log.Uint32("appid", ev.AppID))
-				// Terminate GC session if a driver exists
-				if driver, ok := s.registry.Get(ev.AppID); ok {
-					s.logger.Info("Stopping game coordinator session for quit game", log.Uint32("appid", ev.AppID))
-
-					_ = driver.OnStopGC(ctx)
-				}
-			}
-		}
-	}
-}
-
-// GetStatus returns the daemon state, connection status, memory usage, and active game.
-func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.GetStatusResponse, error) {
-	connected := s.client.Socket().IsConnected()
-	steamID := s.client.SteamID().String()
-
-	s.mu.RLock()
-	currentApp := s.currentAppID
-	s.mu.RUnlock()
-
-	uptime := time.Since(s.uptimeStart).Truncate(time.Second).String()
-
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	appName := "Unknown Steam Game"
-	if currentApp != 0 {
-		if _, ok := s.registry.Get(currentApp); ok {
-			// Resolve name from driver
-			if currentApp == tf2.AppID {
-				appName = "Team Fortress 2"
-			}
-		}
-	}
-
-	return &pb.GetStatusResponse{
-		Connected:      connected,
-		SteamId:        steamID,
-		CurrentAppid:   currentApp,
-		CurrentAppName: appName,
-		Uptime:         uptime,
-		MemoryBytes:    m.Alloc,
-	}, nil
-}
-
-// FreeMemory triggers manual Garbage Collection and releases system memory back to the OS immediately.
-func (s *Daemon) FreeMemory(ctx context.Context, req *pb.FreeMemoryRequest) (*pb.FreeMemoryResponse, error) {
-	s.logger.Info("Forcing manual garbage collection and freeing system memory...")
-
-	// Force GC
-	runtime.GC()
-	// Return memory to OS immediately
-	debug.FreeOSMemory()
-
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	return &pb.FreeMemoryResponse{
-		Message:     "Garbage collection executed and memory released to the OS successfully.",
-		MemoryBytes: m.Alloc,
-	}, nil
-}
-
-// StopDaemon initiates graceful shutdown of the daemon.
-func (s *Daemon) StopDaemon(ctx context.Context, req *pb.StopDaemonRequest) (*pb.StopDaemonResponse, error) {
-	s.logger.Info("Stop request received from CLI client")
-
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		s.shutdownFunc()
-	}()
-
-	return &pb.StopDaemonResponse{
-		Message: "Daemon shutdown initiated successfully.",
-	}, nil
-}
-
-// PlayGame launches a game session on Steam.
-func (s *Daemon) PlayGame(ctx context.Context, req *pb.PlayGameRequest) (*pb.PlayGameResponse, error) {
-	s.logger.Info("Play game request", log.Uint32("appid", req.GetAppid()))
-
-	s.mu.Lock()
-	oldApp := s.currentAppID
-	s.currentAppID = req.GetAppid()
-	s.mu.Unlock()
-
-	if oldApp != 0 && oldApp != req.GetAppid() {
-		if oldDriver, ok := s.registry.Get(oldApp); ok {
-			_ = oldDriver.OnStopGC(ctx)
-		}
-	}
-
-	if err := s.apps.PlayGames(ctx, []uint32{req.GetAppid()}, true); err != nil {
-		s.mu.Lock()
-		s.currentAppID = oldApp
-		s.mu.Unlock()
-
-		return nil, fmt.Errorf("failed to play game: %w", err)
-	}
-
-	if driver, ok := s.registry.Get(req.GetAppid()); ok {
-		s.logger.Info("Initializing game coordinator session", log.Uint32("appid", req.GetAppid()))
-
-		if err := driver.OnStartGC(ctx); err != nil {
-			s.logger.Error("GC startup failed on driver", log.Uint32("appid", req.GetAppid()), log.Err(err))
-		}
-	}
-
-	return &pb.PlayGameResponse{
-		Message: fmt.Sprintf("Daemon is now playing game %d.", req.GetAppid()),
-	}, nil
-}
-
-// ExitGame stops playing the current game and returns the bot to simple online mode.
-func (s *Daemon) ExitGame(ctx context.Context, req *pb.ExitGameRequest) (*pb.ExitGameResponse, error) {
-	s.mu.Lock()
-	currentApp := s.currentAppID
-	s.currentAppID = 0
-	s.mu.Unlock()
-
-	if currentApp == 0 {
-		return &pb.ExitGameResponse{
-			Message: "No game is currently active.",
-		}, nil
-	}
-
-	s.logger.Info("Exit game request", log.Uint32("appid", currentApp))
-
-	if driver, ok := s.registry.Get(currentApp); ok {
-		s.logger.Info("Stopping game coordinator session", log.Uint32("appid", currentApp))
-
-		if err := driver.OnStopGC(ctx); err != nil {
-			s.logger.Error("GC shutdown failed on driver", log.Uint32("appid", currentApp), log.Err(err))
-		}
-	}
-
-	if err := s.apps.StopPlaying(ctx); err != nil {
-		return nil, fmt.Errorf("failed to stop playing game: %w", err)
-	}
-
-	return &pb.ExitGameResponse{
-		Message: fmt.Sprintf("Successfully exited game %d.", currentApp),
-	}, nil
-}
-
-// ExecAction routes dynamic commands to the active game driver.
-func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb.ExecActionResponse, error) {
-	s.logger.Info("Exec action request",
-		log.Uint32("appid", req.GetAppid()),
-		log.String("action", req.GetAction()),
-	)
-
-	driver, ok := s.registry.Get(req.GetAppid())
-	if !ok {
-		return nil, fmt.Errorf("no game driver registered for appid %d", req.GetAppid())
-	}
-
-	s.mu.RLock()
-	currentApp := s.currentAppID
-	s.mu.RUnlock()
-
-	if currentApp != req.GetAppid() {
-		return nil, fmt.Errorf(
-			"appid %d is not currently active (active app: %d). Play it first",
-			req.GetAppid(),
-			currentApp,
-		)
-	}
-
-	if req.GetAction() == "inventory" {
-		realItems := s.tf2.Cache().GetItems()
-
-		pbItems := make([]*pb.Item, len(realItems))
-		for i, ri := range realItems {
-			pbItems[i] = &pb.Item{
-				AssetId:     ri.ID,
-				OriginalId:  ri.OriginalID,
-				DefIndex:    ri.DefIndex,
-				Quality:     ri.Quality,
-				Quantity:    ri.Quantity,
-				IsTradable:  ri.IsTradable,
-				IsCraftable: ri.IsCraftable,
-				Attributes: map[string]string{
-					"sku": ri.GetSKU(s.schemaMgr.Get()),
-				},
-			}
-		}
-
-		return &pb.ExecActionResponse{
-			Message: "Inventory fetched successfully",
-			Items:   pbItems,
-		}, nil
-	} // Delegate execution entirely to the game-specific driver.
-
-	// It returns a formatted response or inventory table as a direct text block.
-	details, err := driver.InventoryProvider().ExecuteAction(ctx, req.GetAction(), req.GetParams())
-	if err != nil {
-		return nil, fmt.Errorf("action execution failed: %w", err)
-	}
-
-	return &pb.ExecActionResponse{
-		Message: "Operation completed successfully.",
-		Details: details,
-	}, nil
-}
-
-// StreamEvents broadcasts the event bus notifications as a gRPC stream.
-func (s *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonService_StreamEventsServer) error {
-	sub := s.client.Bus().Subscribe(
-		&tf2.BackpackLoadedEvent{},
-		&tf2.ItemUpdatedEvent{},
-		&tf2.ItemAcquiredEvent{},
-		&tf2.ItemRemovedEvent{},
-		&tf2.ConnectedEvent{},
-		&tf2.DisconnectedEvent{},
-		&web.NewOfferEvent{},
-		&web.OfferChangedEvent{},
-	)
-	defer sub.Unsubscribe()
-
-	s.logger.Info("Client connected to daemon event stream")
-
-	for {
-		select {
-		case <-stream.Context().Done():
-			s.logger.Info("Client disconnected from event stream")
-			return stream.Context().Err()
-		case <-s.shutdownCtx.Done():
-			return errors.New("daemon shutting down")
-		case ev, ok := <-sub.C():
-			if !ok {
-				return nil
-			}
-
-			payloadBytes, err := json.Marshal(ev)
-			if err != nil {
-				s.logger.Error("Failed to marshal event for stream", log.Err(err))
-				continue
-			}
-
-			eventType := fmt.Sprintf("%T", ev)
-			resp := &pb.StreamEventsResponse{
-				EventId:     strconv.FormatInt(time.Now().UnixNano(), 10),
-				EventType:   eventType,
-				PayloadJson: string(payloadBytes),
-				Timestamp:   time.Now().Unix(),
-			}
-
-			if err := stream.Send(resp); err != nil {
-				s.logger.Error("Failed to send event to stream", log.Err(err))
-				return err
-			}
-		}
-	}
-}
-
-type manualPriceJSONEntry struct {
-	BuyKeys   int     `json:"buy_keys"`
-	BuyMetal  float64 `json:"buy_metal"`
-	SellKeys  int     `json:"sell_keys"`
-	SellMetal float64 `json:"sell_metal"`
-}
-
-// UpdateManualPrices updates manual pricing values for items in the daemon.
-func (s *Daemon) UpdateManualPrices(
-	ctx context.Context,
-	req *pb.UpdateManualPricesRequest,
-) (*pb.UpdateManualPricesResponse, error) {
-	s.logger.Info("Update manual prices request received", log.Int("count", len(req.GetPrices())))
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	prices := make(map[string]manualPriceJSONEntry)
-
-	data, err := os.ReadFile(s.cfg.ManualPricesPath)
-	if err == nil {
-		_ = json.Unmarshal(data, &prices)
-	} else if !os.IsNotExist(err) {
-		s.logger.Warn("Failed to read manual prices file", log.Err(err))
-	}
-
-	for sku, entry := range req.GetPrices() {
-		s.logger.Info("Updating manual price",
-			log.String("sku", sku),
-			log.Uint32("buy_keys", entry.GetBuyKeys()),
-			log.Float64("buy_metal", entry.GetBuyMetal()),
-			log.Uint32("sell_keys", entry.GetSellKeys()),
-			log.Float64("sell_metal", entry.GetSellMetal()),
-		)
-
-		prices[sku] = manualPriceJSONEntry{
-			BuyKeys:   int(entry.GetBuyKeys()),
-			BuyMetal:  entry.GetBuyMetal(),
-			SellKeys:  int(entry.GetSellKeys()),
-			SellMetal: entry.GetSellMetal(),
-		}
-	}
-
-	newData, err := json.MarshalIndent(prices, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal manual prices: %w", err)
-	}
-
-	dir := filepath.Dir(s.cfg.ManualPricesPath)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create directory for manual prices: %w", err)
-	}
-
-	tmpPath := s.cfg.ManualPricesPath + ".tmp"
-	if err := os.WriteFile(tmpPath, newData, 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write manual prices: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, s.cfg.ManualPricesPath); err != nil {
-		return nil, fmt.Errorf("failed to save manual prices: %w", err)
-	}
-
-	return &pb.UpdateManualPricesResponse{
-		Message: fmt.Sprintf("Successfully processed %d price updates.", len(req.GetPrices())),
-		Success: true,
-	}, nil
-}
-
-func defaultSockPath() string {
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		dir := filepath.Join(home, ".config", "gman")
-		_ = os.MkdirAll(dir, 0o750)
-		return filepath.Join(dir, "gman.sock")
-	}
-
-	return "gman.sock"
-}
-
-func GetIPCListener() (net.Listener, string, error) {
-	netType := os.Getenv("GMAN_IPC_NET")
-	addr := os.Getenv("GMAN_IPC_ADDR")
-
-	if netType == "" {
-		if runtime.GOOS == "windows" {
-			netType = "tcp"
-		} else {
-			netType = "unix"
-		}
-	}
-
-	if addr == "" {
-		if netType == "tcp" {
-			addr = "127.0.0.1:50051"
-		} else {
-			addr = defaultSockPath()
-		}
-	}
-
-	if netType == "unix" {
-		if err := os.Remove(addr); err != nil && !os.IsNotExist(err) {
-			return nil, "", fmt.Errorf("failed to remove stale socket: %w", err)
-		}
-
-		if err := os.MkdirAll(filepath.Dir(addr), 0o750); err != nil {
-			return nil, "", fmt.Errorf("failed to create socket directory: %w", err)
-		}
-	}
-
-	var lc net.ListenConfig
-
-	listener, err := lc.Listen(context.Background(), netType, addr)
-	if err != nil {
-		return nil, "", err
-	}
-
-	if netType == "unix" {
-		_ = os.Chmod(addr, 0o600)
-	}
-
-	return listener, addr, nil
-}
-
-func loadEnvConfig() (Config, error) {
-	username, password := os.Getenv("STEAM_USER"), os.Getenv("STEAM_PASS")
-	if username == "" || password == "" {
-		return Config{}, errors.New("STEAM_USER and STEAM_PASS environment variables are required")
-	}
-
-	storagePath := os.Getenv("STEAM_STORAGE_PATH")
-	if storagePath == "" {
-		storagePath = "storage.json"
-	}
-
-	manualPricesPath := os.Getenv("STEAM_MANUAL_PRICES_PATH")
-	if manualPricesPath == "" {
-		manualPricesPath = "cache/tf2/manual_prices.json"
-	}
-
-	return Config{
-		Username:         username,
-		Password:         password,
-		SharedSecret:     os.Getenv("STEAM_SHARED_SECRET"),
-		IdentitySecret:   os.Getenv("STEAM_IDENTITY_SECRET"),
-		DeviceID:         os.Getenv("STEAM_DEVICE_ID"),
-		StoragePath:      storagePath,
-		ManualPricesPath: manualPricesPath,
-	}, nil
-}
-
 func main() {
+	if err := run(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	_ = godotenv.Load()
 
 	var exitCode int
@@ -708,23 +43,28 @@ func main() {
 	flag.BoolVar(&debugEnabled, "d", false, "Enable debug logging (shorthand)")
 	flag.Parse()
 
+	if debugEnabled {
+		fmt.Println("WARNING: daemon is in the debug mode. Make sure to disable it in production.")
+
+		go func() {
+			if err := http.ListenAndServe("localhost:6060", nil); err != nil { //#nosec G114
+				fmt.Fprintln(os.Stderr, "Failed to start pprof server:", err)
+			}
+		}()
+	}
+
 	cfg, err := loadEnvConfig()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Config Error:", err)
-
-		exitCode = 1
-
-		return
+		return err
 	}
 
 	store, err := jsonfile.New(cfg.StoragePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize storage: %v\n", err)
-
-		exitCode = 1
-
-		return
+		return err
 	}
+	defer store.Close()
 
 	logLevel := log.LevelInfo
 	if debugEnabled {
@@ -735,38 +75,27 @@ func main() {
 	logCfg.FullPath = true
 
 	logger := log.New(logCfg)
+	defer logger.Close()
 
 	shutdownCtx, shutdownFunc := context.WithCancel(context.Background())
+	defer shutdownFunc()
 
 	listener, path, err := GetIPCListener()
 	if err != nil {
-		_ = store.Close()
-
 		fmt.Fprintln(os.Stderr, "Failed to listen on IPC interface:", err)
-
-		exitCode = 1
-
-		return
+		return err
 	}
 
 	daemon, err := NewDaemon(cfg, store, logger, shutdownCtx, shutdownFunc)
 	if err != nil {
-		_ = logger.Close()
-		_ = store.Close()
-
-		shutdownFunc()
 		logger.Error("Failed to initialize daemon", log.Err(err))
-
-		exitCode = 1
-
-		return
+		return err
 	}
 
-	defer store.Close()
-	defer logger.Close()
-	defer shutdownFunc()
-
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(64*1024*1024),
+		grpc.MaxSendMsgSize(64*1024*1024),
+	)
 	pb.RegisterDaemonServiceServer(grpcServer, daemon)
 
 	logger.Info("gRPC IPC server listening",
@@ -792,20 +121,7 @@ func main() {
 	if err := daemon.Run(shutdownCtx); err != nil {
 		logger.Error("Daemon run failed", log.Err(err))
 	} else {
-		// Run initial non-interactive maintenance routine at startup
-		if driver, ok := daemon.registry.Get(440); ok {
-			if tf2Driver, ok := driver.(*tf2driver.Driver); ok {
-				go func() {
-					// Add small startup delay to ensure GC is fully ready
-					time.Sleep(3 * time.Second)
-
-					if err := tf2Driver.RunMaintenance(shutdownCtx, logger); err != nil {
-						logger.Error("Startup inventory maintenance failed", log.Err(err))
-					}
-				}()
-			}
-		}
-
+		daemon.StartStartupMaintenance(shutdownCtx)
 		<-shutdownCtx.Done()
 	}
 
@@ -819,4 +135,6 @@ func main() {
 	}
 
 	logger.Info("Daemon process exited.")
+
+	return nil
 }
