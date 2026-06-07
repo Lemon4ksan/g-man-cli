@@ -36,7 +36,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
-	pb "github.com/lemon4ksan/g-man-cli/pkg/protobuf/daemon"
+	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2"
 )
 

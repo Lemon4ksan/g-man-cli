@@ -12,10 +12,14 @@ RESET := \033[0m
 all: build # Default target
 
 proto: # Generate protobuf and gRPC files from daemon.proto
-	protoc --go_out=. --go_opt=paths=source_relative \
-		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		pkg/protobuf/daemon/daemon.proto
-
+	cd proto && \
+	protoc --go_out=./daemon --go_opt=paths=source_relative \
+		--go-grpc_out=./daemon --go-grpc_opt=paths=source_relative \
+		daemon.proto && \
+	protoc --go_out=./paymaster --go_opt=paths=source_relative \
+		--go-grpc_out=./paymaster --go-grpc_opt=paths=source_relative \
+		paymaster.proto
+		
 build: # Build both daemon and CLI client
 	go build -o bin/g-mand ./cmd/g-mand/
 	go build -o bin/gmanctl ./cmd/gmanctl/

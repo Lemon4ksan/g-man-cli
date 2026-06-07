@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package daemon;
 
-option go_package = "github.com/lemon4ksan/g-man/pkg/protobuf/daemon";
+option go_package = "github.com/lemon4ksan/g-man-cli/proto/daemon";
 
 service DaemonService {
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);

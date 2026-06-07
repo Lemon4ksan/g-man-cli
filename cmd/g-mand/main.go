@@ -19,7 +19,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/storage/jsonfile"
 	"google.golang.org/grpc"
 
-	pb "github.com/lemon4ksan/g-man-cli/pkg/protobuf/daemon"
+	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
 func main() {

@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "github.com/lemon4ksan/g-man-cli/pkg/protobuf/daemon"
+	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
 // ANSI color escape codes for high-quality terminal visuals

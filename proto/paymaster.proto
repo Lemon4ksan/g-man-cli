@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package paymaster_bot;
+
+option go_package = "github.com/vlhltf/g-man-cli/pkg/protobuf/paymaster";
+
+service PaymasterBotService {
+  rpc CreateSteamTrade(CreateSteamTradeRequest) returns (CreateSteamTradeResponse);
+  rpc CancelSteamTrade(CancelSteamTradeRequest) returns (CancelSteamTradeResponse);
+}
+
+message CreateSteamTradeRequest {
+  uint64 transaction_id = 1;
+  string trade_link = 2;
+  uint32 keys_count = 3;
+  double metal_count = 4;
+  string security_code = 5;
+}
+
+message CreateSteamTradeResponse {
+  bool success = 1;
+  string trade_offer_id = 2;
+  uint64 steam_id_64 = 3;
+  string error_message = 4;
+}
+
+message CancelSteamTradeRequest {
+  string trade_offer_id = 1;
+}
+
+message CancelSteamTradeResponse {
+  bool success = 1;
+  string error_message = 2;
+}
