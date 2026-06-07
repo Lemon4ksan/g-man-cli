@@ -24,10 +24,10 @@ github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aN
 github.com/gorilla/websocket v1.5.3/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
-github.com/lemon4ksan/g-man v0.5.2 h1:kWp908/OxgRTAdzhcl77a5OTj9L+WfhsnU2C3jHHjB0=
-github.com/lemon4ksan/g-man v0.5.2/go.mod h1:Shm+Zha1dq35L/0E4WrjzoadSztSNF1Mtm74TM6ct94=
-github.com/lemon4ksan/g-man-tf2 v0.2.1 h1:sFIq6FMWZqBQnjDh1a4eLILlZK+lke2s/Ai+zJuXcr8=
-github.com/lemon4ksan/g-man-tf2 v0.2.1/go.mod h1:d3X/TyhSpljWpFXZAGOTElq69NHqxqpyPeKRrl9Zk1k=
+github.com/lemon4ksan/g-man v0.5.3 h1:SvGT0Vh2Fcg8PHvZGuEtCW7RB8sxPuVCzgxo+HrQYYk=
+github.com/lemon4ksan/g-man v0.5.3/go.mod h1:Shm+Zha1dq35L/0E4WrjzoadSztSNF1Mtm74TM6ct94=
+github.com/lemon4ksan/g-man-tf2 v0.2.2 h1:AgyQ7foAFhOLMVUVRKbrO1wthCweAs0TzJFODNALJEo=
+github.com/lemon4ksan/g-man-tf2 v0.2.2/go.mod h1:d3X/TyhSpljWpFXZAGOTElq69NHqxqpyPeKRrl9Zk1k=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

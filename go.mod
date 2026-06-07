@@ -3,8 +3,8 @@ module github.com/lemon4ksan/g-man-cli
 go 1.26.2
 
 require (
-	github.com/lemon4ksan/g-man v0.5.2
-	github.com/lemon4ksan/g-man-tf2 v0.2.1
+	github.com/lemon4ksan/g-man v0.5.3
+	github.com/lemon4ksan/g-man-tf2 v0.2.2
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
