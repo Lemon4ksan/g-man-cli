@@ -17,8 +17,8 @@ proto: # Generate protobuf and gRPC files from daemon.proto
 		pkg/protobuf/daemon/daemon.proto
 
 build: # Build both daemon and CLI client
-	go build -o bin/g-mand.exe cmd/g-mand/main.go
-	go build -o bin/gmanctl.exe cmd/gmanctl/main.go
+	go build -o bin/g-mand ./cmd/g-mand/
+	go build -o bin/gmanctl ./cmd/gmanctl/
 
 test: ## Run normal quick tests
 	@printf "$(CYAN)Running unit tests...$(RESET)\n"
