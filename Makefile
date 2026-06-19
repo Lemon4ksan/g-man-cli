@@ -15,10 +15,7 @@ proto: # Generate protobuf and gRPC files from daemon.proto
 	cd proto && \
 	protoc --go_out=./daemon --go_opt=paths=source_relative \
 		--go-grpc_out=./daemon --go-grpc_opt=paths=source_relative \
-		daemon.proto && \
-	protoc --go_out=./paymaster --go_opt=paths=source_relative \
-		--go-grpc_out=./paymaster --go-grpc_opt=paths=source_relative \
-		paymaster.proto
+		daemon.proto
 		
 build: # Build both daemon and CLI client
 	go build -o bin/g-mand ./cmd/g-mand/
@@ -52,7 +49,7 @@ clean: ## Delete temporary files and binaries
 	rm -f coverage.out
 
 format: ## Run go code formatting
-	addlicense -c "Lemon4ksan" -l bsd -ignore "pkg/protobuf/**" -ignore "**/*.yml" .
+	addlicense -c "Lemon4ksan" -l bsd -ignore "proto/**" -ignore "**/*.yml" .
 	golangci-lint run --fix
 
 help: ## Show this message

@@ -14,6 +14,7 @@ import (
 type Config struct {
 	Username         string
 	Password         string
+	RefreshToken     string
 	SharedSecret     string
 	IdentitySecret   string
 	DeviceID         string
@@ -32,9 +33,16 @@ func defaultSockPath() string {
 }
 
 func loadEnvConfig() (Config, error) {
-	username, password := os.Getenv("STEAM_USER"), os.Getenv("STEAM_PASS")
-	if username == "" || password == "" {
-		return Config{}, errors.New("STEAM_USER and STEAM_PASS environment variables are required")
+	username := os.Getenv("STEAM_USER")
+	password := os.Getenv("STEAM_PASS")
+	refreshToken := os.Getenv("STEAM_REFRESH_TOKEN")
+
+	if username == "" && refreshToken == "" {
+		return Config{}, errors.New("STEAM_USER + STEAM_PASS or STEAM_REFRESH_TOKEN environment variable is required")
+	}
+
+	if username != "" && password == "" && refreshToken == "" {
+		return Config{}, errors.New("STEAM_PASS is required when using STEAM_USER without STEAM_REFRESH_TOKEN")
 	}
 
 	storagePath := os.Getenv("STEAM_STORAGE_PATH")
@@ -50,6 +58,7 @@ func loadEnvConfig() (Config, error) {
 	return Config{
 		Username:         username,
 		Password:         password,
+		RefreshToken:     refreshToken,
 		SharedSecret:     os.Getenv("STEAM_SHARED_SECRET"),
 		IdentitySecret:   os.Getenv("STEAM_IDENTITY_SECRET"),
 		DeviceID:         os.Getenv("STEAM_DEVICE_ID"),

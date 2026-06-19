@@ -27,6 +27,11 @@ const (
 	DaemonService_FreeMemory_FullMethodName         = "/daemon.DaemonService/FreeMemory"
 	DaemonService_StreamEvents_FullMethodName       = "/daemon.DaemonService/StreamEvents"
 	DaemonService_UpdateManualPrices_FullMethodName = "/daemon.DaemonService/UpdateManualPrices"
+	DaemonService_GuardCode_FullMethodName          = "/daemon.DaemonService/GuardCode"
+	DaemonService_GuardStatus_FullMethodName        = "/daemon.DaemonService/GuardStatus"
+	DaemonService_GuardList_FullMethodName          = "/daemon.DaemonService/GuardList"
+	DaemonService_GuardRespond_FullMethodName       = "/daemon.DaemonService/GuardRespond"
+	DaemonService_GuardImport_FullMethodName        = "/daemon.DaemonService/GuardImport"
 )
 
 // DaemonServiceClient is the client API for DaemonService service.
@@ -41,6 +46,11 @@ type DaemonServiceClient interface {
 	FreeMemory(ctx context.Context, in *FreeMemoryRequest, opts ...grpc.CallOption) (*FreeMemoryResponse, error)
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamEventsResponse], error)
 	UpdateManualPrices(ctx context.Context, in *UpdateManualPricesRequest, opts ...grpc.CallOption) (*UpdateManualPricesResponse, error)
+	GuardCode(ctx context.Context, in *GuardCodeRequest, opts ...grpc.CallOption) (*GuardCodeResponse, error)
+	GuardStatus(ctx context.Context, in *GuardStatusRequest, opts ...grpc.CallOption) (*GuardStatusResponse, error)
+	GuardList(ctx context.Context, in *GuardListRequest, opts ...grpc.CallOption) (*GuardListResponse, error)
+	GuardRespond(ctx context.Context, in *GuardRespondRequest, opts ...grpc.CallOption) (*GuardRespondResponse, error)
+	GuardImport(ctx context.Context, in *GuardImportRequest, opts ...grpc.CallOption) (*GuardImportResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -140,6 +150,56 @@ func (c *daemonServiceClient) UpdateManualPrices(ctx context.Context, in *Update
 	return out, nil
 }
 
+func (c *daemonServiceClient) GuardCode(ctx context.Context, in *GuardCodeRequest, opts ...grpc.CallOption) (*GuardCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardCodeResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardStatus(ctx context.Context, in *GuardStatusRequest, opts ...grpc.CallOption) (*GuardStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardStatusResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardList(ctx context.Context, in *GuardListRequest, opts ...grpc.CallOption) (*GuardListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardListResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardList_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardRespond(ctx context.Context, in *GuardRespondRequest, opts ...grpc.CallOption) (*GuardRespondResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardRespondResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardRespond_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardImport(ctx context.Context, in *GuardImportRequest, opts ...grpc.CallOption) (*GuardImportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardImportResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardImport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DaemonServiceServer is the server API for DaemonService service.
 // All implementations must embed UnimplementedDaemonServiceServer
 // for forward compatibility.
@@ -152,6 +212,11 @@ type DaemonServiceServer interface {
 	FreeMemory(context.Context, *FreeMemoryRequest) (*FreeMemoryResponse, error)
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[StreamEventsResponse]) error
 	UpdateManualPrices(context.Context, *UpdateManualPricesRequest) (*UpdateManualPricesResponse, error)
+	GuardCode(context.Context, *GuardCodeRequest) (*GuardCodeResponse, error)
+	GuardStatus(context.Context, *GuardStatusRequest) (*GuardStatusResponse, error)
+	GuardList(context.Context, *GuardListRequest) (*GuardListResponse, error)
+	GuardRespond(context.Context, *GuardRespondRequest) (*GuardRespondResponse, error)
+	GuardImport(context.Context, *GuardImportRequest) (*GuardImportResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -185,6 +250,21 @@ func (UnimplementedDaemonServiceServer) StreamEvents(*StreamEventsRequest, grpc.
 }
 func (UnimplementedDaemonServiceServer) UpdateManualPrices(context.Context, *UpdateManualPricesRequest) (*UpdateManualPricesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateManualPrices not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardCode(context.Context, *GuardCodeRequest) (*GuardCodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardCode not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardStatus(context.Context, *GuardStatusRequest) (*GuardStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardStatus not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardList(context.Context, *GuardListRequest) (*GuardListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardList not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardRespond(context.Context, *GuardRespondRequest) (*GuardRespondResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardRespond not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardImport(context.Context, *GuardImportRequest) (*GuardImportResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardImport not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 func (UnimplementedDaemonServiceServer) testEmbeddedByValue()                       {}
@@ -344,6 +424,96 @@ func _DaemonService_UpdateManualPrices_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_GuardCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardCode(ctx, req.(*GuardCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardStatus(ctx, req.(*GuardStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardListRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardList(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardList_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardList(ctx, req.(*GuardListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardRespond_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardRespondRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardRespond(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardRespond_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardRespond(ctx, req.(*GuardRespondRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardImportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardImport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardImport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardImport(ctx, req.(*GuardImportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DaemonService_ServiceDesc is the grpc.ServiceDesc for DaemonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -378,6 +548,26 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateManualPrices",
 			Handler:    _DaemonService_UpdateManualPrices_Handler,
+		},
+		{
+			MethodName: "GuardCode",
+			Handler:    _DaemonService_GuardCode_Handler,
+		},
+		{
+			MethodName: "GuardStatus",
+			Handler:    _DaemonService_GuardStatus_Handler,
+		},
+		{
+			MethodName: "GuardList",
+			Handler:    _DaemonService_GuardList_Handler,
+		},
+		{
+			MethodName: "GuardRespond",
+			Handler:    _DaemonService_GuardRespond_Handler,
+		},
+		{
+			MethodName: "GuardImport",
+			Handler:    _DaemonService_GuardImport_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

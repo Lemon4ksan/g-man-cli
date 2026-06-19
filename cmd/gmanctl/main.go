@@ -239,6 +239,78 @@ func main() {
 
 		handleUpdatePrices(ctx, client, prices)
 
+	case "guard":
+		if len(os.Args) < 3 {
+			fmt.Printf(
+				"%sError: 'guard' command requires a subcommand (status, code, list, respond, import)%s\n",
+				ColorRed,
+				ColorReset,
+			)
+
+			exitCode = 1
+
+			return
+		}
+
+		sub := os.Args[2]
+		switch sub {
+		case "status":
+			handleGuardStatus(ctx, client)
+		case "code":
+			handleGuardCode(ctx, client)
+		case "list":
+			handleGuardList(ctx, client)
+		case "respond":
+			if len(os.Args) < 5 {
+				fmt.Printf(
+					"%sError: 'guard respond' requires <id> <accept|decline>. Example: gmanctl guard respond 12345 accept%s\n",
+					ColorRed,
+					ColorReset,
+				)
+
+				exitCode = 1
+
+				return
+			}
+
+			confID, err := strconv.ParseUint(os.Args[3], 10, 64)
+			if err != nil {
+				fmt.Printf("%sError: Invalid confirmation ID %q: %v%s\n", ColorRed, os.Args[3], err, ColorReset)
+
+				exitCode = 1
+
+				return
+			}
+
+			accept := os.Args[4] == "accept" || os.Args[4] == "true" || os.Args[4] == "1"
+			handleGuardRespond(ctx, client, confID, accept)
+
+		case "import":
+			if len(os.Args) < 6 {
+				fmt.Printf(
+					"%sError: 'guard import' requires <shared_secret> <identity_secret> <device_id> [account_name]%s\n",
+					ColorRed,
+					ColorReset,
+				)
+
+				exitCode = 1
+
+				return
+			}
+
+			accountName := ""
+			if len(os.Args) >= 6 {
+				accountName = os.Args[5]
+			}
+
+			handleGuardImport(ctx, client, os.Args[3], os.Args[4], accountName)
+
+		default:
+			fmt.Printf("%sUnknown guard subcommand: %s%s\n", ColorRed, sub, ColorReset)
+
+			exitCode = 1
+		}
+
 	case "help":
 		printUsage()
 	default:
@@ -267,6 +339,12 @@ func printUsage() {
 	fmt.Printf("  %-30s %s\n", "exec <appid> <action> [params]", "Execute game action (e.g., exec 440 craft-metal)")
 	fmt.Printf("  %-30s %s\n", "exec <appid> inventory", "Quick shortcut to query game backpack items")
 	fmt.Printf("  %-30s %s\n", "update-prices <entry> [entry...]", "Update manual pricing database entries")
+	fmt.Println("\nGuard Commands:")
+	fmt.Printf("  %-30s %s\n", "guard status", "Show Steam Guard configuration status")
+	fmt.Printf("  %-30s %s\n", "guard code", "Generate current Steam Guard 2FA TOTP code")
+	fmt.Printf("  %-30s %s\n", "guard list", "List pending Steam Guard confirmations")
+	fmt.Printf("  %-30s %s\n", "guard respond <id> <accept|decline>", "Accept or decline a confirmation")
+	fmt.Printf("  %-30s %s\n", "guard import <shared> <identity> <device>", "Import Steam Guard secrets")
 	fmt.Println("\nGlobal Parameters:")
 	fmt.Println("  Arguments for 'exec' actions can be passed in key=value format (e.g., type=scrap).")
 	fmt.Println("  Arguments for 'update-prices' are formatted as: sku=buy_keys,buy_metal,sell_keys,sell_metal")
@@ -481,6 +559,126 @@ func handleUpdatePrices(ctx context.Context, client pb.DaemonServiceClient, pric
 	})
 	if err != nil {
 		fmt.Printf("%sFailed to update prices: %v%s\n", ColorRed, err, ColorReset)
+		return
+	}
+
+	if resp.GetSuccess() {
+		fmt.Printf("%s%s%s\n", ColorGreen, resp.GetMessage(), ColorReset)
+	} else {
+		fmt.Printf("%sFailed: %s%s\n", ColorRed, resp.GetMessage(), ColorReset)
+	}
+}
+
+func handleGuardStatus(ctx context.Context, client pb.DaemonServiceClient) {
+	resp, err := client.GuardStatus(ctx, &pb.GuardStatusRequest{})
+	if err != nil {
+		fmt.Printf("%sFailed to get guard status: %v%s\n", ColorRed, err, ColorReset)
+		return
+	}
+
+	fmt.Printf("%s%s=== STEAM GUARD STATUS ===%s\n", ColorBold, ColorCyan, ColorReset)
+
+	if resp.GetConfigured() {
+		fmt.Printf("Status:    %sConfigured%s\n", ColorGreen, ColorReset)
+	} else {
+		fmt.Printf("Status:    %sNot configured%s\n", ColorRed, ColorReset)
+	}
+
+	if resp.GetDeviceId() != "" {
+		fmt.Printf("Device ID: %s%s%s\n", ColorYellow, resp.GetDeviceId(), ColorReset)
+	}
+
+	if resp.GetSteamId() != "" {
+		fmt.Printf("Steam ID:  %s%s%s\n", ColorYellow, resp.GetSteamId(), ColorReset)
+	}
+}
+
+func handleGuardCode(ctx context.Context, client pb.DaemonServiceClient) {
+	resp, err := client.GuardCode(ctx, &pb.GuardCodeRequest{})
+	if err != nil {
+		fmt.Printf("%sFailed to generate guard code: %v%s\n", ColorRed, err, ColorReset)
+		return
+	}
+
+	fmt.Printf("%s%sCurrent Steam Guard Code: %s%s\n", ColorBold, ColorGreen, resp.GetCode(), ColorReset)
+}
+
+func handleGuardList(ctx context.Context, client pb.DaemonServiceClient) {
+	fmt.Printf("%sFetching pending confirmations...%s\n", ColorCyan, ColorReset)
+
+	resp, err := client.GuardList(ctx, &pb.GuardListRequest{})
+	if err != nil {
+		fmt.Printf("%sFailed to list confirmations: %v%s\n", ColorRed, err, ColorReset)
+		return
+	}
+
+	confs := resp.GetConfirmations()
+	if len(confs) == 0 {
+		fmt.Printf("%sNo pending confirmations%s\n", ColorGray, ColorReset)
+		return
+	}
+
+	fmt.Printf("%s%s=== PENDING CONFIRMATIONS (%d) ===%s\n", ColorBold, ColorCyan, len(confs), ColorReset)
+
+	for i, c := range confs {
+		fmt.Printf("\n%s[%d]%s %s%s%s\n", ColorBold, i+1, ColorReset, ColorGreen, c.GetTitle(), ColorReset)
+		fmt.Printf(
+			"    ID: %s%d%s  Type: %s%s%s\n",
+			ColorYellow,
+			c.GetId(),
+			ColorReset,
+			ColorYellow,
+			c.GetTypeName(),
+			ColorReset,
+		)
+
+		if c.GetDescription() != "" {
+			fmt.Printf("    %s%s%s\n", ColorGray, c.GetDescription(), ColorReset)
+		}
+	}
+
+	fmt.Printf("\n%sTo accept: gmanctl guard respond <id> accept%s\n", ColorGray, ColorReset)
+	fmt.Printf("%sTo decline: gmanctl guard respond <id> decline%s\n", ColorGray, ColorReset)
+}
+
+func handleGuardRespond(ctx context.Context, client pb.DaemonServiceClient, confID uint64, accept bool) {
+	action := "declining"
+	if accept {
+		action = "accepting"
+	}
+
+	fmt.Printf("%s%s confirmation %d...%s\n", ColorCyan, action, confID, ColorReset)
+
+	resp, err := client.GuardRespond(ctx, &pb.GuardRespondRequest{
+		ConfirmationId: confID,
+		Accept:         accept,
+	})
+	if err != nil {
+		fmt.Printf("%sFailed to respond to confirmation: %v%s\n", ColorRed, err, ColorReset)
+		return
+	}
+
+	if resp.GetSuccess() {
+		fmt.Printf("%s%s%s\n", ColorGreen, resp.GetMessage(), ColorReset)
+	} else {
+		fmt.Printf("%sFailed: %s%s\n", ColorRed, resp.GetMessage(), ColorReset)
+	}
+}
+
+func handleGuardImport(
+	ctx context.Context,
+	client pb.DaemonServiceClient,
+	sharedSecret, identitySecret, accountName string,
+) {
+	fmt.Printf("%sImporting Steam Guard secrets...%s\n", ColorCyan, ColorReset)
+
+	resp, err := client.GuardImport(ctx, &pb.GuardImportRequest{
+		SharedSecret:   sharedSecret,
+		IdentitySecret: identitySecret,
+		AccountName:    accountName,
+	})
+	if err != nil {
+		fmt.Printf("%sFailed to import guard secrets: %v%s\n", ColorRed, err, ColorReset)
 		return
 	}
 

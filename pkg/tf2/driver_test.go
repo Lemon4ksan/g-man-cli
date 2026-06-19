@@ -5,6 +5,7 @@
 package tf2
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -14,18 +15,18 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/lemon4ksan/aoni"
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
-	"github.com/lemon4ksan/g-man/pkg/bus"
-	"github.com/lemon4ksan/g-man/pkg/jobs"
 	"github.com/lemon4ksan/g-man/pkg/log"
-	"github.com/lemon4ksan/g-man/pkg/rest"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/g-man/pkg/steam/protocol"
 	tr "github.com/lemon4ksan/g-man/pkg/steam/transport"
 	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
+	"github.com/lemon4ksan/miyako/bus"
+	"github.com/lemon4ksan/miyako/jobs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -91,7 +92,7 @@ func (m *mockServiceDoer) Do(ctx context.Context, req *tr.Request) (*tr.Response
 }
 
 type mockCommunityRequester struct {
-	rest.Requester
+	aoni.Requester
 	sessionIDFunc func(baseURL string) string
 }
 
@@ -104,17 +105,16 @@ func (m *mockCommunityRequester) SessionID(baseURL string) string {
 }
 
 type mockRestRequester struct {
-	requestFunc func(ctx context.Context, method, path string, body, query any, mods ...rest.RequestModifier) (*http.Response, error)
+	requestFunc func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error)
 }
 
 func (m *mockRestRequester) Request(
 	ctx context.Context,
 	method, path string,
-	body, query any,
-	mods ...rest.RequestModifier,
+	mods ...aoni.RequestModifier,
 ) (*http.Response, error) {
 	if m.requestFunc != nil {
-		return m.requestFunc(ctx, method, path, body, query, mods...)
+		return m.requestFunc(ctx, method, path, mods...)
 	}
 
 	return nil, nil
@@ -152,6 +152,17 @@ func setUnexportedField(target any, fieldName string, value any) {
 	getUnexportedField(target, fieldName).Set(reflect.ValueOf(value))
 }
 
+func setFSMState(tf2Mod *tf2.TF2, state int) {
+	fsmVal := getUnexportedField(tf2Mod, "fsm")
+	fsmStruct := fsmVal.Elem()
+
+	currentField := fsmStruct.FieldByName("current")
+	if currentField.IsValid() {
+		fsmCurrent := reflect.NewAt(currentField.Type(), unsafe.Pointer(currentField.UnsafeAddr())).Elem()
+		fsmCurrent.Set(reflect.ValueOf(state).Convert(currentField.Type()))
+	}
+}
+
 func setupDriver(
 	t *testing.T,
 ) (*Driver, *tf2.TF2, *backpack.Backpack, *schema.Manager, *web.Manager, *mockCoordinatorProvider, *mockServiceDoer, *mockCommunityRequester) {
@@ -185,9 +196,8 @@ func setupDriver(
 	gcMock := &mockCoordinatorProvider{}
 	setUnexportedField(tf2Mod, "gc", gcMock)
 
-	// Set state to Connected (2)
-	stateVal := getUnexportedField(tf2Mod, "state")
-	stateVal.Addr().MethodByName("Store").Call([]reflect.Value{reflect.ValueOf(int32(2))})
+	// Set state to Connected via FSM
+	setFSMState(tf2Mod, 2)
 
 	// Create and set SOCache
 	soCache := tf2.NewSOCache(gcMock)
@@ -312,15 +322,14 @@ func TestDriver_RunMaintenance(t *testing.T) {
 	d, tf2Mod, bpMod, _, _, gcMock, _, _ := setupDriver(t)
 
 	// Test 1: GC not connected
-	stateVal := getUnexportedField(tf2Mod, "state")
-	stateVal.Addr().MethodByName("Store").Call([]reflect.Value{reflect.ValueOf(int32(0))})
+	setFSMState(tf2Mod, 0)
 
 	err := d.RunMaintenance(context.Background(), log.Discard)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no active connection to TF2 Game Coordinator")
 
 	// Set state back to Connected (2)
-	stateVal.Addr().MethodByName("Store").Call([]reflect.Value{reflect.ValueOf(int32(2))})
+	setFSMState(tf2Mod, 2)
 
 	// Setup bpMod cache and items (duplicate weapons)
 	bpCache := &mockBackpackCache{
@@ -613,7 +622,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	_, err = d.ExecuteAction(ctx, "send-offer", map[string]string{"offer_params": "{"}) // invalid json
 	assert.Error(t, err)
 
-	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, body, query any, mods ...rest.RequestModifier) (*http.Response, error) {
+	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
 		respJSON := `{"tradeofferid":"987654"}`
 
 		return &http.Response{
@@ -639,7 +648,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 
 	doerMock.doFunc = func(ctx context.Context, req *tr.Request) (*tr.Response, error) {
 		body := []byte(`{}`)
-		return tr.NewResponse(body, nil), nil
+		return tr.NewResponse(io.NopCloser(bytes.NewReader(body)), nil), nil
 	}
 	res, err = d.ExecuteAction(ctx, "accept-offer", map[string]string{"offer_id": "987654"})
 	assert.NoError(t, err)
@@ -661,7 +670,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	_, err = d.ExecuteAction(ctx, "check-escrow", map[string]string{"offer": "{"})
 	assert.Error(t, err)
 
-	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, body, query any, mods ...rest.RequestModifier) (*http.Response, error) {
+	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
 		html := `<html><body><script>var g_daysMyEscrow = 0; var g_daysTheirEscrow = 0;</script></body></html>`
 
 		return &http.Response{
@@ -704,7 +713,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	_, err = d.ExecuteAction(ctx, "get-partner-inventory", map[string]string{"partner_id": "invalid"})
 	assert.Error(t, err)
 
-	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, body, query any, mods ...rest.RequestModifier) (*http.Response, error) {
+	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
 		inventoryJSON := `{
 			"success": true,
 			"total_inventory_count": 1,
@@ -745,7 +754,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 			}
 		}`)
 
-		return tr.NewResponse(body, nil), nil
+		return tr.NewResponse(io.NopCloser(bytes.NewReader(body)), nil), nil
 	}
 	res, err = d.ExecuteAction(ctx, "active-offers", nil)
 	assert.NoError(t, err)
@@ -759,7 +768,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 
 	doerMock.doFunc = func(ctx context.Context, req *tr.Request) (*tr.Response, error) {
 		body := []byte(`{}`)
-		return tr.NewResponse(body, nil), nil
+		return tr.NewResponse(io.NopCloser(bytes.NewReader(body)), nil), nil
 	}
 	res, err = d.ExecuteAction(ctx, "cancel-offer", map[string]string{"offer_id": "987654"})
 	assert.NoError(t, err)
@@ -784,7 +793,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 			}
 		}`)
 
-		return tr.NewResponse(body, nil), nil
+		return tr.NewResponse(io.NopCloser(bytes.NewReader(body)), nil), nil
 	}
 	res, err = d.ExecuteAction(ctx, "active-sent-offers", nil)
 	assert.NoError(t, err)

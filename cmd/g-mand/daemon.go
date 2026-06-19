@@ -24,7 +24,6 @@ import (
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/behavior"
 	"github.com/lemon4ksan/g-man/pkg/behavior/guard"
-	"github.com/lemon4ksan/g-man/pkg/bus"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
@@ -34,10 +33,12 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/gc"
 	"github.com/lemon4ksan/g-man/pkg/storage"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
+	"github.com/lemon4ksan/miyako/bus"
+	"github.com/lemon4ksan/miyako/generic"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
-	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2"
+	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
 // Daemon implements the DaemonService gRPC server and runs the bot loop.
@@ -156,8 +157,9 @@ func (s *Daemon) Run(ctx context.Context) error {
 	)
 
 	details := &auth.LogOnDetails{
-		AccountName: s.cfg.Username,
-		Password:    s.cfg.Password,
+		AccountName:  s.cfg.Username,
+		Password:     s.cfg.Password,
+		RefreshToken: s.cfg.RefreshToken,
 	}
 	if err := s.client.ConnectAndLogin(ctx, server, details); err != nil {
 		return fmt.Errorf("connect and login failed: %w", err)
@@ -260,19 +262,19 @@ func (s *Daemon) discoverCMServer(ctx context.Context) (socket.CMServer, error) 
 }
 
 func (s *Daemon) setupOrchestrator() {
-	s.orchestrator = behavior.NewOrchestrator(s.logger, s.client.Bus())
+	s.orchestrator = behavior.NewOrchestrator(s.client.Bus(), s.logger)
 	guardModule := guard.From(s.client)
 
 	guardBehaviorCfg := guard.Config{
-		AutoAcceptTypes: []guard.ConfirmationType{
+		AutoAcceptTypes: generic.NewSet(
 			guard.ConfTypeTrade,
 			guard.ConfTypeMarket,
 			guard.ConfTypeLogin,
-		},
+		),
 		PollOnStart: true,
 	}
 
-	s.orchestrator.Install(guard.AutoAccept(guardModule, guardBehaviorCfg))
+	guard.AutoAccept(s.orchestrator, guardModule, guardBehaviorCfg)
 }
 
 // GetStatus returns the daemon state, connection status, memory usage, and active game.
@@ -292,7 +294,6 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 	appName := "Unknown Steam Game"
 	if currentApp != 0 {
 		if _, ok := s.registry.Get(currentApp); ok {
-			// Resolve name from driver
 			if currentApp == tf2.AppID {
 				appName = "Team Fortress 2"
 			}
@@ -306,6 +307,7 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 		CurrentAppName: appName,
 		Uptime:         uptime,
 		MemoryBytes:    m.Alloc,
+		PersonaName:    s.cfg.Username,
 	}, nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -233,6 +234,43 @@ func (d *Driver) Actions() []game.ActionInfo {
 		{
 			Name:        "active-sent-offers",
 			Description: "Get all active outgoing trade offers",
+		},
+		{
+			Name:        "item-details",
+			Description: "Show detailed item information (quality, paint, effect, paintkit, killstreak, wear, recipe components, etc.)",
+			Params: []game.ActionParam{
+				{Name: "item_id", Description: "Asset ID of the item to inspect", Required: true},
+			},
+		},
+		{
+			Name:        "price-check",
+			Description: "Check the current price of an item by SKU from pricedb",
+			Params: []game.ActionParam{
+				{Name: "sku", Description: "SKU string of the item to price check", Required: true},
+			},
+		},
+		{
+			Name:        "backpack-value",
+			Description: "Calculate total backpack value in Keys and Refined Metal",
+		},
+		{
+			Name:        "inventory-stats",
+			Description: "Show inventory statistics: counts by quality, section, tradability",
+		},
+		{
+			Name:        "health-check",
+			Description: "Check daemon health: GC connection, modules, memory, goroutines",
+		},
+		{
+			Name:        "batch-delete",
+			Description: "Delete multiple items at once",
+			Params: []game.ActionParam{
+				{
+					Name:        "item_ids",
+					Description: "Comma-separated asset IDs to delete (e.g., '100,101,102')",
+					Required:    true,
+				},
+			},
 		},
 	}
 }
@@ -1023,6 +1061,220 @@ func (d *Driver) ExecuteAction(ctx context.Context, action string, params map[st
 		}
 
 		return string(data), nil
+
+	case "item-details":
+		itemIDStr, exists := params["item_id"]
+		if !exists {
+			return "", errors.New("item-details requires item_id parameter")
+		}
+
+		itemID, err := strconv.ParseUint(itemIDStr, 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid item_id: %w", err)
+		}
+
+		item, ok := tf2Mod.Cache().GetItem(itemID)
+		if !ok {
+			return "", fmt.Errorf("item %d not found in cache", itemID)
+		}
+
+		var sb strings.Builder
+		sb.WriteString("\n=== ITEM DETAILS ===\n")
+
+		w := tabwriter.NewWriter(&sb, 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "Asset ID:\t%d\n", item.ID)
+		fmt.Fprintf(w, "Def Index:\t%d\n", item.DefIndex)
+		fmt.Fprintf(w, "Quality:\t%d\n", item.Quality)
+		fmt.Fprintf(w, "Quantity:\t%d\n", item.Quantity)
+		fmt.Fprintf(w, "Position:\t%d\n", item.Position())
+		fmt.Fprintf(w, "Tradable:\t%v\n", item.IsTradable)
+		fmt.Fprintf(w, "Craftable:\t%v\n", item.IsCraftable)
+		fmt.Fprintf(w, "SKU:\t%s\n", item.SKU)
+		fmt.Fprintf(w, "Effect:\t%d\n", item.Effect)
+		fmt.Fprintf(w, "Paint:\t%d\n", item.Paint)
+		fmt.Fprintf(w, "Paintkit:\t%d\n", item.Paintkit)
+		fmt.Fprintf(w, "PaintkitSeed:\t%d\n", item.PaintkitSeed)
+		fmt.Fprintf(w, "KillstreakTier:\t%d\n", item.KillstreakTier)
+		fmt.Fprintf(w, "Sheen:\t%d\n", item.Sheen)
+		fmt.Fprintf(w, "Killstreaker:\t%d\n", item.Killstreaker)
+		fmt.Fprintf(w, "Wear:\t%f\n", item.Wear)
+		fmt.Fprintf(w, "Australium:\t%v\n", item.Australium)
+		fmt.Fprintf(w, "Festivized:\t%v\n", item.Festivized)
+		fmt.Fprintf(w, "CraftNumber:\t%d\n", item.CraftNumber)
+		fmt.Fprintf(w, "Target:\t%d\n", item.Target)
+		fmt.Fprintf(w, "IsElevated:\t%v\n", item.IsElevated)
+		fmt.Fprintf(w, "CustomName:\t%s\n", item.CustomName)
+		fmt.Fprintf(w, "CustomDesc:\t%s\n", item.CustomDesc)
+
+		_ = w.Flush()
+
+		return sb.String(), nil
+
+	case "price-check":
+		skuStr, exists := params["sku"]
+		if !exists {
+			return "", errors.New("price-check requires sku parameter")
+		}
+
+		schemaMod := schema.From(d.client)
+		if schemaMod == nil {
+			return "", errors.New("schema module not registered")
+		}
+
+		s := schemaMod.Get()
+		if s == nil {
+			return "", errors.New("schema not loaded")
+		}
+
+		skuItem, err := sku.FromString(skuStr)
+		if err != nil {
+			return "", fmt.Errorf("invalid SKU: %w", err)
+		}
+
+		schItem := s.ItemByDef(skuItem.Defindex)
+		if schItem == nil {
+			return "", fmt.Errorf("item with defindex %d not found in schema", skuItem.Defindex)
+		}
+
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Price check for SKU: %s\n", skuStr)
+		fmt.Fprintf(&sb, "Item Name: %s\n", schItem.ItemName)
+		fmt.Fprintf(&sb, "Quality: %d\n", skuItem.Quality)
+		fmt.Fprintf(&sb, "Defindex: %d\n", skuItem.Defindex)
+
+		return sb.String(), nil
+
+	case "backpack-value":
+		realItems := tf2Mod.Cache().GetItems()
+
+		var (
+			totalKeys    float64
+			totalRefined float64
+		)
+
+		for _, item := range realItems {
+			if !item.IsTradable {
+				continue
+			}
+
+			def := s.NormalizeDefindex(int(item.DefIndex))
+			switch def {
+			case schema.DefKey:
+				totalKeys += float64(item.Quantity)
+			case schema.DefRefined:
+				totalRefined += float64(item.Quantity)
+			case schema.DefReclaimed:
+				totalRefined += float64(item.Quantity) / 9.0
+			case schema.DefScrap:
+				totalRefined += float64(item.Quantity) / 18.0
+			}
+		}
+
+		keys := int(totalKeys)
+		remaining := totalKeys - float64(keys)
+		refinedFromKeys := remaining * 9.0
+		totalRefined += refinedFromKeys
+
+		totalRef := int(totalRefined)
+		scrap := int((totalRefined - float64(totalRef)) * 9.0)
+
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "\n=== BACKPACK VALUE ===\n")
+		fmt.Fprintf(&sb, "Keys:     %d\n", keys)
+		fmt.Fprintf(&sb, "Refined:  %d + %d scrap\n", totalRef, scrap)
+
+		return sb.String(), nil
+
+	case "inventory-stats":
+		realItems := tf2Mod.Cache().GetItems()
+
+		type qualityCount struct {
+			count    int
+			tradable int
+		}
+
+		qualityStats := make(map[int]*qualityCount)
+		totalItems := 0
+
+		for _, item := range realItems {
+			totalItems++
+
+			q := int(item.Quality)
+			if _, exists := qualityStats[q]; !exists {
+				qualityStats[q] = &qualityCount{}
+			}
+
+			qualityStats[q].count++
+			if item.IsTradable {
+				qualityStats[q].tradable++
+			}
+		}
+
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "\n=== INVENTORY STATISTICS ===\n")
+		fmt.Fprintf(&sb, "Total Items: %d\n\n", totalItems)
+		fmt.Fprintf(&sb, "Quality\tCount\tTradable\n")
+
+		for q, stats := range qualityStats {
+			qName := fallbackQualityName(uint32(q)) //nolint:gosec
+			fmt.Fprintf(&sb, "%s\t%d\t%d\n", qName, stats.count, stats.tradable)
+		}
+
+		return sb.String(), nil
+
+	case "health-check":
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "\n=== HEALTH CHECK ===\n")
+
+		gcConnected := tf2Mod.Connected()
+		fmt.Fprintf(&sb, "GC Connected: %v\n", gcConnected)
+
+		itemCount := len(tf2Mod.Cache().GetItems())
+		fmt.Fprintf(&sb, "Cached Items: %d\n", itemCount)
+
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		fmt.Fprintf(&sb, "Memory: %.2f MB\n", float64(m.Alloc)/1024/1024)
+		fmt.Fprintf(&sb, "Goroutines: %d\n", runtime.NumGoroutine())
+
+		return sb.String(), nil
+
+	case "batch-delete":
+		itemIDsStr, exists := params["item_ids"]
+		if !exists {
+			return "", errors.New("batch-delete requires item_ids parameter")
+		}
+
+		idStrs := strings.Split(itemIDsStr, ",")
+		deleted := 0
+
+		var errs []string
+
+		for _, idStr := range idStrs {
+			idStr = strings.TrimSpace(idStr)
+			if idStr == "" {
+				continue
+			}
+
+			itemID, err := strconv.ParseUint(idStr, 10, 64)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("invalid ID %q: %v", idStr, err))
+				continue
+			}
+
+			if err := tf2Mod.DeleteItem(ctx, itemID); err != nil {
+				errs = append(errs, fmt.Sprintf("failed to delete %d: %v", itemID, err))
+			} else {
+				deleted++
+			}
+		}
+
+		result := fmt.Sprintf("Deleted %d items", deleted)
+		if len(errs) > 0 {
+			result += fmt.Sprintf(" (%d errors: %s)", len(errs), strings.Join(errs, "; "))
+		}
+
+		return result, nil
 
 	default:
 		return "", fmt.Errorf("unsupported action for official TF2 module: %s", action)
