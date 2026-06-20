@@ -27,6 +27,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
+	"github.com/lemon4ksan/g-man/pkg/steam/social/chat"
 	"github.com/lemon4ksan/g-man/pkg/steam/socket"
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/apps"
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/directory"
@@ -87,6 +88,7 @@ func NewDaemon(
 		tf2.WithModule(),
 		backpack.WithModule(),
 		guard.WithModule(guard.DefaultGuardConfig(cfg.SharedSecret, cfg.IdentitySecret, cfg.DeviceID)),
+		chat.WithModule(),
 	}
 
 	client, err := steam.NewClient(clientCfg, opts...)
@@ -517,6 +519,7 @@ func (s *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonServi
 		&tf2.DisconnectedEvent{},
 		&web.NewOfferEvent{},
 		&web.OfferChangedEvent{},
+		&chat.MessageEvent{},
 	)
 	defer sub.Unsubscribe()
 

@@ -24,6 +24,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/g-man/pkg/steam/id"
+	"github.com/lemon4ksan/g-man/pkg/steam/social/chat"
 	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
 
@@ -270,6 +271,14 @@ func (d *Driver) Actions() []game.ActionInfo {
 					Description: "Comma-separated asset IDs to delete (e.g., '100,101,102')",
 					Required:    true,
 				},
+			},
+		},
+		{
+			Name:        "send-chat",
+			Description: "Send a chat message to a Steam user via Unified Messages",
+			Params: []game.ActionParam{
+				{Name: "steam_id", Description: "Target SteamID64 of the recipient", Required: true},
+				{Name: "message", Description: "Message text to send", Required: true},
 			},
 		},
 	}
@@ -1275,6 +1284,33 @@ func (d *Driver) ExecuteAction(ctx context.Context, action string, params map[st
 		}
 
 		return result, nil
+
+	case "send-chat":
+		steamIDStr, exists := params["steam_id"]
+		if !exists {
+			return "", errors.New("send-chat requires steam_id parameter")
+		}
+
+		message, exists := params["message"]
+		if !exists {
+			return "", errors.New("send-chat requires message parameter")
+		}
+
+		steamID, err := strconv.ParseUint(steamIDStr, 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid steam_id: %w", err)
+		}
+
+		chatMod := chat.From(d.client)
+		if chatMod == nil {
+			return "", errors.New("chat module not registered or loaded")
+		}
+
+		if err := chatMod.SendMessage(ctx, steamID, message); err != nil {
+			return "", fmt.Errorf("failed to send chat message: %w", err)
+		}
+
+		return fmt.Sprintf("Successfully sent message to %d", steamID), nil
 
 	default:
 		return "", fmt.Errorf("unsupported action for official TF2 module: %s", action)
