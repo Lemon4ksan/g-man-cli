@@ -148,6 +148,19 @@ Open a separate terminal window and issue command sequences to the active daemon
   ```shell
   .\bin\gmanctl.exe exit-game
   ```
+* **Manage Steam Guard (TOTP / Confirmations):**
+  ```shell
+  # Check configuration status
+  .\bin\gmanctl.exe guard status
+  # Generate current 2FA TOTP code
+  .\bin\gmanctl.exe guard code
+  # List pending mobile confirmations
+  .\bin\gmanctl.exe guard list
+  # Accept or decline confirmation by ID
+  .\bin\gmanctl.exe guard respond <confirmation_id> accept
+  # Import Steam Guard secrets configuration
+  .\bin\gmanctl.exe guard import <shared_secret> <identity_secret> <device_id> [account_name]
+  ```
 * **Gracefully Shut Down Daemon:**
   ```shell
   .\bin\gmanctl.exe stop

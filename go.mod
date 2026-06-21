@@ -7,7 +7,9 @@ require (
 	github.com/lemon4ksan/g-man v0.7.0
 	github.com/lemon4ksan/g-man-tf2 v0.3.0
 	github.com/lemon4ksan/miyako v0.1.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/term v0.44.0
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 )

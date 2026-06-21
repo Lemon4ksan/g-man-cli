@@ -148,6 +148,19 @@ $env:STEAM_PASS="ваш_пароль_steam"
   ```shell
   .\bin\gmanctl.exe exit-game
   ```
+* **Управление Steam Guard (2FA TOTP / Подтверждения):**
+  ```shell
+  # Проверить статус конфигурации Guard
+  .\bin\gmanctl.exe guard status
+  # Сгенерировать текущий временный код 2FA TOTP
+  .\bin\gmanctl.exe guard code
+  # Получить список ожидающих мобильных подтверждений
+  .\bin\gmanctl.exe guard list
+  # Подтвердить или отклонить мобильную транзакцию по ID
+  .\bin\gmanctl.exe guard respond <confirmation_id> accept
+  # Импортировать секреты авторизации Steam Guard
+  .\bin\gmanctl.exe guard import <shared_secret> <identity_secret> <device_id> [account_name]
+  ```
 * **Корректно остановить фоновый процесс демона:**
   ```shell
   .\bin\gmanctl.exe stop

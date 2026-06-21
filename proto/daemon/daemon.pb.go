@@ -21,6 +21,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type RequestType int32
+
+const (
+	RequestType_REQUEST_TYPE_UNSPECIFIED RequestType = 0
+	RequestType_REQUEST_TYPE_COMMUNITY   RequestType = 1
+	RequestType_REQUEST_TYPE_UNIFIED     RequestType = 2
+	RequestType_REQUEST_TYPE_WEBAPI      RequestType = 3
+)
+
+// Enum value maps for RequestType.
+var (
+	RequestType_name = map[int32]string{
+		0: "REQUEST_TYPE_UNSPECIFIED",
+		1: "REQUEST_TYPE_COMMUNITY",
+		2: "REQUEST_TYPE_UNIFIED",
+		3: "REQUEST_TYPE_WEBAPI",
+	}
+	RequestType_value = map[string]int32{
+		"REQUEST_TYPE_UNSPECIFIED": 0,
+		"REQUEST_TYPE_COMMUNITY":   1,
+		"REQUEST_TYPE_UNIFIED":     2,
+		"REQUEST_TYPE_WEBAPI":      3,
+	}
+)
+
+func (x RequestType) Enum() *RequestType {
+	p := new(RequestType)
+	*p = x
+	return p
+}
+
+func (x RequestType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RequestType) Descriptor() protoreflect.EnumDescriptor {
+	return file_daemon_proto_enumTypes[0].Descriptor()
+}
+
+func (RequestType) Type() protoreflect.EnumType {
+	return &file_daemon_proto_enumTypes[0]
+}
+
+func (x RequestType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RequestType.Descriptor instead.
+func (RequestType) EnumDescriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{0}
+}
+
 type FreeMemoryRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -146,16 +198,24 @@ func (*GetStatusRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetStatusResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Connected      bool                   `protobuf:"varint,1,opt,name=connected,proto3" json:"connected,omitempty"`
-	SteamId        string                 `protobuf:"bytes,2,opt,name=steam_id,json=steamId,proto3" json:"steam_id,omitempty"`
-	CurrentAppid   uint32                 `protobuf:"varint,3,opt,name=current_appid,json=currentAppid,proto3" json:"current_appid,omitempty"`
-	Uptime         string                 `protobuf:"bytes,4,opt,name=uptime,proto3" json:"uptime,omitempty"`
-	MemoryBytes    uint64                 `protobuf:"varint,5,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
-	CurrentAppName string                 `protobuf:"bytes,6,opt,name=current_app_name,json=currentAppName,proto3" json:"current_app_name,omitempty"`
-	PersonaName    string                 `protobuf:"bytes,7,opt,name=persona_name,json=personaName,proto3" json:"persona_name,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Connected         bool                   `protobuf:"varint,1,opt,name=connected,proto3" json:"connected,omitempty"`
+	SteamId           string                 `protobuf:"bytes,2,opt,name=steam_id,json=steamId,proto3" json:"steam_id,omitempty"`
+	CurrentAppid      uint32                 `protobuf:"varint,3,opt,name=current_appid,json=currentAppid,proto3" json:"current_appid,omitempty"`
+	Uptime            string                 `protobuf:"bytes,4,opt,name=uptime,proto3" json:"uptime,omitempty"`
+	MemoryBytes       uint64                 `protobuf:"varint,5,opt,name=memory_bytes,json=memoryBytes,proto3" json:"memory_bytes,omitempty"`
+	CurrentAppName    string                 `protobuf:"bytes,6,opt,name=current_app_name,json=currentAppName,proto3" json:"current_app_name,omitempty"`
+	Locked            bool                   `protobuf:"varint,7,opt,name=locked,proto3" json:"locked,omitempty"`
+	PersonaName       string                 `protobuf:"bytes,8,opt,name=persona_name,json=personaName,proto3" json:"persona_name,omitempty"`
+	IpCountry         string                 `protobuf:"bytes,9,opt,name=ip_country,json=ipCountry,proto3" json:"ip_country,omitempty"`
+	WalletBalance     int64                  `protobuf:"varint,10,opt,name=wallet_balance,json=walletBalance,proto3" json:"wallet_balance,omitempty"`
+	WalletCurrency    string                 `protobuf:"bytes,11,opt,name=wallet_currency,json=walletCurrency,proto3" json:"wallet_currency,omitempty"`
+	IsLimited         bool                   `protobuf:"varint,12,opt,name=is_limited,json=isLimited,proto3" json:"is_limited,omitempty"`
+	IsCommunityBanned bool                   `protobuf:"varint,13,opt,name=is_community_banned,json=isCommunityBanned,proto3" json:"is_community_banned,omitempty"`
+	VacBansCount      uint32                 `protobuf:"varint,14,opt,name=vac_bans_count,json=vacBansCount,proto3" json:"vac_bans_count,omitempty"`
+	EmailAddress      string                 `protobuf:"bytes,15,opt,name=email_address,json=emailAddress,proto3" json:"email_address,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetStatusResponse) Reset() {
@@ -230,9 +290,65 @@ func (x *GetStatusResponse) GetCurrentAppName() string {
 	return ""
 }
 
+func (x *GetStatusResponse) GetLocked() bool {
+	if x != nil {
+		return x.Locked
+	}
+	return false
+}
+
 func (x *GetStatusResponse) GetPersonaName() string {
 	if x != nil {
 		return x.PersonaName
+	}
+	return ""
+}
+
+func (x *GetStatusResponse) GetIpCountry() string {
+	if x != nil {
+		return x.IpCountry
+	}
+	return ""
+}
+
+func (x *GetStatusResponse) GetWalletBalance() int64 {
+	if x != nil {
+		return x.WalletBalance
+	}
+	return 0
+}
+
+func (x *GetStatusResponse) GetWalletCurrency() string {
+	if x != nil {
+		return x.WalletCurrency
+	}
+	return ""
+}
+
+func (x *GetStatusResponse) GetIsLimited() bool {
+	if x != nil {
+		return x.IsLimited
+	}
+	return false
+}
+
+func (x *GetStatusResponse) GetIsCommunityBanned() bool {
+	if x != nil {
+		return x.IsCommunityBanned
+	}
+	return false
+}
+
+func (x *GetStatusResponse) GetVacBansCount() uint32 {
+	if x != nil {
+		return x.VacBansCount
+	}
+	return 0
+}
+
+func (x *GetStatusResponse) GetEmailAddress() string {
+	if x != nil {
+		return x.EmailAddress
 	}
 	return ""
 }
@@ -1449,6 +1565,590 @@ func (x *GuardStatusResponse) GetAccountName() string {
 	return ""
 }
 
+type GuardTransferStartRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardTransferStartRequest) Reset() {
+	*x = GuardTransferStartRequest{}
+	mi := &file_daemon_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardTransferStartRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardTransferStartRequest) ProtoMessage() {}
+
+func (x *GuardTransferStartRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardTransferStartRequest.ProtoReflect.Descriptor instead.
+func (*GuardTransferStartRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{27}
+}
+
+type GuardTransferStartResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardTransferStartResponse) Reset() {
+	*x = GuardTransferStartResponse{}
+	mi := &file_daemon_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardTransferStartResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardTransferStartResponse) ProtoMessage() {}
+
+func (x *GuardTransferStartResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardTransferStartResponse.ProtoReflect.Descriptor instead.
+func (*GuardTransferStartResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *GuardTransferStartResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *GuardTransferStartResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type GuardTransferFinishRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SmsCode       string                 `protobuf:"bytes,1,opt,name=sms_code,json=smsCode,proto3" json:"sms_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardTransferFinishRequest) Reset() {
+	*x = GuardTransferFinishRequest{}
+	mi := &file_daemon_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardTransferFinishRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardTransferFinishRequest) ProtoMessage() {}
+
+func (x *GuardTransferFinishRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardTransferFinishRequest.ProtoReflect.Descriptor instead.
+func (*GuardTransferFinishRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *GuardTransferFinishRequest) GetSmsCode() string {
+	if x != nil {
+		return x.SmsCode
+	}
+	return ""
+}
+
+type GuardTransferFinishResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Success        bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	SharedSecret   string                 `protobuf:"bytes,2,opt,name=shared_secret,json=sharedSecret,proto3" json:"shared_secret,omitempty"`
+	IdentitySecret string                 `protobuf:"bytes,3,opt,name=identity_secret,json=identitySecret,proto3" json:"identity_secret,omitempty"`
+	RevocationCode string                 `protobuf:"bytes,4,opt,name=revocation_code,json=revocationCode,proto3" json:"revocation_code,omitempty"`
+	DeviceId       string                 `protobuf:"bytes,5,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	Uri            string                 `protobuf:"bytes,6,opt,name=uri,proto3" json:"uri,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *GuardTransferFinishResponse) Reset() {
+	*x = GuardTransferFinishResponse{}
+	mi := &file_daemon_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardTransferFinishResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardTransferFinishResponse) ProtoMessage() {}
+
+func (x *GuardTransferFinishResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardTransferFinishResponse.ProtoReflect.Descriptor instead.
+func (*GuardTransferFinishResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *GuardTransferFinishResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *GuardTransferFinishResponse) GetSharedSecret() string {
+	if x != nil {
+		return x.SharedSecret
+	}
+	return ""
+}
+
+func (x *GuardTransferFinishResponse) GetIdentitySecret() string {
+	if x != nil {
+		return x.IdentitySecret
+	}
+	return ""
+}
+
+func (x *GuardTransferFinishResponse) GetRevocationCode() string {
+	if x != nil {
+		return x.RevocationCode
+	}
+	return ""
+}
+
+func (x *GuardTransferFinishResponse) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *GuardTransferFinishResponse) GetUri() string {
+	if x != nil {
+		return x.Uri
+	}
+	return ""
+}
+
+type GuardLinkStartRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId      string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardLinkStartRequest) Reset() {
+	*x = GuardLinkStartRequest{}
+	mi := &file_daemon_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardLinkStartRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardLinkStartRequest) ProtoMessage() {}
+
+func (x *GuardLinkStartRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardLinkStartRequest.ProtoReflect.Descriptor instead.
+func (*GuardLinkStartRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *GuardLinkStartRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+type GuardLinkStartResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Success         bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	SharedSecret    string                 `protobuf:"bytes,2,opt,name=shared_secret,json=sharedSecret,proto3" json:"shared_secret,omitempty"`
+	IdentitySecret  string                 `protobuf:"bytes,3,opt,name=identity_secret,json=identitySecret,proto3" json:"identity_secret,omitempty"`
+	RevocationCode  string                 `protobuf:"bytes,4,opt,name=revocation_code,json=revocationCode,proto3" json:"revocation_code,omitempty"`
+	DeviceId        string                 `protobuf:"bytes,5,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	Uri             string                 `protobuf:"bytes,6,opt,name=uri,proto3" json:"uri,omitempty"`
+	PhoneNumberHint string                 `protobuf:"bytes,7,opt,name=phone_number_hint,json=phoneNumberHint,proto3" json:"phone_number_hint,omitempty"`
+	ServerTime      uint64                 `protobuf:"varint,8,opt,name=server_time,json=serverTime,proto3" json:"server_time,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GuardLinkStartResponse) Reset() {
+	*x = GuardLinkStartResponse{}
+	mi := &file_daemon_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardLinkStartResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardLinkStartResponse) ProtoMessage() {}
+
+func (x *GuardLinkStartResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardLinkStartResponse.ProtoReflect.Descriptor instead.
+func (*GuardLinkStartResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *GuardLinkStartResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *GuardLinkStartResponse) GetSharedSecret() string {
+	if x != nil {
+		return x.SharedSecret
+	}
+	return ""
+}
+
+func (x *GuardLinkStartResponse) GetIdentitySecret() string {
+	if x != nil {
+		return x.IdentitySecret
+	}
+	return ""
+}
+
+func (x *GuardLinkStartResponse) GetRevocationCode() string {
+	if x != nil {
+		return x.RevocationCode
+	}
+	return ""
+}
+
+func (x *GuardLinkStartResponse) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+func (x *GuardLinkStartResponse) GetUri() string {
+	if x != nil {
+		return x.Uri
+	}
+	return ""
+}
+
+func (x *GuardLinkStartResponse) GetPhoneNumberHint() string {
+	if x != nil {
+		return x.PhoneNumberHint
+	}
+	return ""
+}
+
+func (x *GuardLinkStartResponse) GetServerTime() uint64 {
+	if x != nil {
+		return x.ServerTime
+	}
+	return 0
+}
+
+type GuardLinkFinalizeRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	SharedSecret   string                 `protobuf:"bytes,1,opt,name=shared_secret,json=sharedSecret,proto3" json:"shared_secret,omitempty"`
+	ServerTime     uint64                 `protobuf:"varint,2,opt,name=server_time,json=serverTime,proto3" json:"server_time,omitempty"`
+	SmsCode        string                 `protobuf:"bytes,3,opt,name=sms_code,json=smsCode,proto3" json:"sms_code,omitempty"`
+	IdentitySecret string                 `protobuf:"bytes,4,opt,name=identity_secret,json=identitySecret,proto3" json:"identity_secret,omitempty"`
+	DeviceId       string                 `protobuf:"bytes,5,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *GuardLinkFinalizeRequest) Reset() {
+	*x = GuardLinkFinalizeRequest{}
+	mi := &file_daemon_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardLinkFinalizeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardLinkFinalizeRequest) ProtoMessage() {}
+
+func (x *GuardLinkFinalizeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardLinkFinalizeRequest.ProtoReflect.Descriptor instead.
+func (*GuardLinkFinalizeRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *GuardLinkFinalizeRequest) GetSharedSecret() string {
+	if x != nil {
+		return x.SharedSecret
+	}
+	return ""
+}
+
+func (x *GuardLinkFinalizeRequest) GetServerTime() uint64 {
+	if x != nil {
+		return x.ServerTime
+	}
+	return 0
+}
+
+func (x *GuardLinkFinalizeRequest) GetSmsCode() string {
+	if x != nil {
+		return x.SmsCode
+	}
+	return ""
+}
+
+func (x *GuardLinkFinalizeRequest) GetIdentitySecret() string {
+	if x != nil {
+		return x.IdentitySecret
+	}
+	return ""
+}
+
+func (x *GuardLinkFinalizeRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+type GuardLinkFinalizeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardLinkFinalizeResponse) Reset() {
+	*x = GuardLinkFinalizeResponse{}
+	mi := &file_daemon_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardLinkFinalizeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardLinkFinalizeResponse) ProtoMessage() {}
+
+func (x *GuardLinkFinalizeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardLinkFinalizeResponse.ProtoReflect.Descriptor instead.
+func (*GuardLinkFinalizeResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *GuardLinkFinalizeResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *GuardLinkFinalizeResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type GuardSubmitAuthCodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardSubmitAuthCodeRequest) Reset() {
+	*x = GuardSubmitAuthCodeRequest{}
+	mi := &file_daemon_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardSubmitAuthCodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardSubmitAuthCodeRequest) ProtoMessage() {}
+
+func (x *GuardSubmitAuthCodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardSubmitAuthCodeRequest.ProtoReflect.Descriptor instead.
+func (*GuardSubmitAuthCodeRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *GuardSubmitAuthCodeRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+type GuardSubmitAuthCodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardSubmitAuthCodeResponse) Reset() {
+	*x = GuardSubmitAuthCodeResponse{}
+	mi := &file_daemon_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardSubmitAuthCodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardSubmitAuthCodeResponse) ProtoMessage() {}
+
+func (x *GuardSubmitAuthCodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardSubmitAuthCodeResponse.ProtoReflect.Descriptor instead.
+func (*GuardSubmitAuthCodeResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *GuardSubmitAuthCodeResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *GuardSubmitAuthCodeResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 type GuardImportRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	SharedSecret   string                 `protobuf:"bytes,1,opt,name=shared_secret,json=sharedSecret,proto3" json:"shared_secret,omitempty"`
@@ -1462,7 +2162,7 @@ type GuardImportRequest struct {
 
 func (x *GuardImportRequest) Reset() {
 	*x = GuardImportRequest{}
-	mi := &file_daemon_proto_msgTypes[27]
+	mi := &file_daemon_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1474,7 +2174,7 @@ func (x *GuardImportRequest) String() string {
 func (*GuardImportRequest) ProtoMessage() {}
 
 func (x *GuardImportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[27]
+	mi := &file_daemon_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1487,7 +2187,7 @@ func (x *GuardImportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GuardImportRequest.ProtoReflect.Descriptor instead.
 func (*GuardImportRequest) Descriptor() ([]byte, []int) {
-	return file_daemon_proto_rawDescGZIP(), []int{27}
+	return file_daemon_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *GuardImportRequest) GetSharedSecret() string {
@@ -1535,7 +2235,7 @@ type GuardImportResponse struct {
 
 func (x *GuardImportResponse) Reset() {
 	*x = GuardImportResponse{}
-	mi := &file_daemon_proto_msgTypes[28]
+	mi := &file_daemon_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1547,7 +2247,7 @@ func (x *GuardImportResponse) String() string {
 func (*GuardImportResponse) ProtoMessage() {}
 
 func (x *GuardImportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_daemon_proto_msgTypes[28]
+	mi := &file_daemon_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1560,7 +2260,7 @@ func (x *GuardImportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GuardImportResponse.ProtoReflect.Descriptor instead.
 func (*GuardImportResponse) Descriptor() ([]byte, []int) {
-	return file_daemon_proto_rawDescGZIP(), []int{28}
+	return file_daemon_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GuardImportResponse) GetSuccess() bool {
@@ -1577,6 +2277,398 @@ func (x *GuardImportResponse) GetMessage() string {
 	return ""
 }
 
+type GuardUnlockRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Passphrase    string                 `protobuf:"bytes,1,opt,name=passphrase,proto3" json:"passphrase,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardUnlockRequest) Reset() {
+	*x = GuardUnlockRequest{}
+	mi := &file_daemon_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardUnlockRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardUnlockRequest) ProtoMessage() {}
+
+func (x *GuardUnlockRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardUnlockRequest.ProtoReflect.Descriptor instead.
+func (*GuardUnlockRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *GuardUnlockRequest) GetPassphrase() string {
+	if x != nil {
+		return x.Passphrase
+	}
+	return ""
+}
+
+type GuardUnlockResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GuardUnlockResponse) Reset() {
+	*x = GuardUnlockResponse{}
+	mi := &file_daemon_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GuardUnlockResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GuardUnlockResponse) ProtoMessage() {}
+
+func (x *GuardUnlockResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GuardUnlockResponse.ProtoReflect.Descriptor instead.
+func (*GuardUnlockResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *GuardUnlockResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *GuardUnlockResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type SetFriendNicknameRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SteamId       uint64                 `protobuf:"varint,1,opt,name=steam_id,json=steamId,proto3" json:"steam_id,omitempty"`
+	Nickname      string                 `protobuf:"bytes,2,opt,name=nickname,proto3" json:"nickname,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetFriendNicknameRequest) Reset() {
+	*x = SetFriendNicknameRequest{}
+	mi := &file_daemon_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetFriendNicknameRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetFriendNicknameRequest) ProtoMessage() {}
+
+func (x *SetFriendNicknameRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetFriendNicknameRequest.ProtoReflect.Descriptor instead.
+func (*SetFriendNicknameRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *SetFriendNicknameRequest) GetSteamId() uint64 {
+	if x != nil {
+		return x.SteamId
+	}
+	return 0
+}
+
+func (x *SetFriendNicknameRequest) GetNickname() string {
+	if x != nil {
+		return x.Nickname
+	}
+	return ""
+}
+
+type SetFriendNicknameResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetFriendNicknameResponse) Reset() {
+	*x = SetFriendNicknameResponse{}
+	mi := &file_daemon_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetFriendNicknameResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetFriendNicknameResponse) ProtoMessage() {}
+
+func (x *SetFriendNicknameResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetFriendNicknameResponse.ProtoReflect.Descriptor instead.
+func (*SetFriendNicknameResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *SetFriendNicknameResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *SetFriendNicknameResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type ExecRequestRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          RequestType            `protobuf:"varint,1,opt,name=type,proto3,enum=daemon.RequestType" json:"type,omitempty"`
+	Method        string                 `protobuf:"bytes,2,opt,name=method,proto3" json:"method,omitempty"`
+	Path          string                 `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	Params        map[string]string      `protobuf:"bytes,4,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Body          []byte                 `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`
+	IsPostForm    bool                   `protobuf:"varint,6,opt,name=is_post_form,json=isPostForm,proto3" json:"is_post_form,omitempty"`
+	Version       int32                  `protobuf:"varint,7,opt,name=version,proto3" json:"version,omitempty"`
+	Interface     string                 `protobuf:"bytes,8,opt,name=interface,proto3" json:"interface,omitempty"`
+	Action        string                 `protobuf:"bytes,9,opt,name=action,proto3" json:"action,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecRequestRequest) Reset() {
+	*x = ExecRequestRequest{}
+	mi := &file_daemon_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecRequestRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecRequestRequest) ProtoMessage() {}
+
+func (x *ExecRequestRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecRequestRequest.ProtoReflect.Descriptor instead.
+func (*ExecRequestRequest) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ExecRequestRequest) GetType() RequestType {
+	if x != nil {
+		return x.Type
+	}
+	return RequestType_REQUEST_TYPE_UNSPECIFIED
+}
+
+func (x *ExecRequestRequest) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *ExecRequestRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ExecRequestRequest) GetParams() map[string]string {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
+func (x *ExecRequestRequest) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+func (x *ExecRequestRequest) GetIsPostForm() bool {
+	if x != nil {
+		return x.IsPostForm
+	}
+	return false
+}
+
+func (x *ExecRequestRequest) GetVersion() int32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ExecRequestRequest) GetInterface() string {
+	if x != nil {
+		return x.Interface
+	}
+	return ""
+}
+
+func (x *ExecRequestRequest) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+type ExecRequestResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Body          []byte                 `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	StatusCode    int32                  `protobuf:"varint,4,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
+	Eresult       uint32                 `protobuf:"varint,5,opt,name=eresult,proto3" json:"eresult,omitempty"`
+	Headers       map[string]string      `protobuf:"bytes,6,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecRequestResponse) Reset() {
+	*x = ExecRequestResponse{}
+	mi := &file_daemon_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecRequestResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecRequestResponse) ProtoMessage() {}
+
+func (x *ExecRequestResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_daemon_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecRequestResponse.ProtoReflect.Descriptor instead.
+func (*ExecRequestResponse) Descriptor() ([]byte, []int) {
+	return file_daemon_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ExecRequestResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ExecRequestResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ExecRequestResponse) GetBody() []byte {
+	if x != nil {
+		return x.Body
+	}
+	return nil
+}
+
+func (x *ExecRequestResponse) GetStatusCode() int32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
+}
+
+func (x *ExecRequestResponse) GetEresult() uint32 {
+	if x != nil {
+		return x.Eresult
+	}
+	return 0
+}
+
+func (x *ExecRequestResponse) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
 var File_daemon_proto protoreflect.FileDescriptor
 
 const file_daemon_proto_rawDesc = "" +
@@ -1586,15 +2678,26 @@ const file_daemon_proto_rawDesc = "" +
 	"\x12FreeMemoryResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12!\n" +
 	"\fmemory_bytes\x18\x02 \x01(\x04R\vmemoryBytes\"\x12\n" +
-	"\x10GetStatusRequest\"\xf9\x01\n" +
+	"\x10GetStatusRequest\"\x9a\x04\n" +
 	"\x11GetStatusResponse\x12\x1c\n" +
 	"\tconnected\x18\x01 \x01(\bR\tconnected\x12\x19\n" +
 	"\bsteam_id\x18\x02 \x01(\tR\asteamId\x12#\n" +
 	"\rcurrent_appid\x18\x03 \x01(\rR\fcurrentAppid\x12\x16\n" +
 	"\x06uptime\x18\x04 \x01(\tR\x06uptime\x12!\n" +
 	"\fmemory_bytes\x18\x05 \x01(\x04R\vmemoryBytes\x12(\n" +
-	"\x10current_app_name\x18\x06 \x01(\tR\x0ecurrentAppName\x12!\n" +
-	"\fpersona_name\x18\a \x01(\tR\vpersonaName\"\x13\n" +
+	"\x10current_app_name\x18\x06 \x01(\tR\x0ecurrentAppName\x12\x16\n" +
+	"\x06locked\x18\a \x01(\bR\x06locked\x12!\n" +
+	"\fpersona_name\x18\b \x01(\tR\vpersonaName\x12\x1d\n" +
+	"\n" +
+	"ip_country\x18\t \x01(\tR\tipCountry\x12%\n" +
+	"\x0ewallet_balance\x18\n" +
+	" \x01(\x03R\rwalletBalance\x12'\n" +
+	"\x0fwallet_currency\x18\v \x01(\tR\x0ewalletCurrency\x12\x1d\n" +
+	"\n" +
+	"is_limited\x18\f \x01(\bR\tisLimited\x12.\n" +
+	"\x13is_community_banned\x18\r \x01(\bR\x11isCommunityBanned\x12$\n" +
+	"\x0evac_bans_count\x18\x0e \x01(\rR\fvacBansCount\x12#\n" +
+	"\remail_address\x18\x0f \x01(\tR\femailAddress\"\x13\n" +
 	"\x11StopDaemonRequest\".\n" +
 	"\x12StopDaemonResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"'\n" +
@@ -1682,7 +2785,47 @@ const file_daemon_proto_rawDesc = "" +
 	"\x05state\x18\x04 \x01(\rR\x05state\x12#\n" +
 	"\rshared_secret\x18\x05 \x01(\tR\fsharedSecret\x12\x10\n" +
 	"\x03uri\x18\x06 \x01(\tR\x03uri\x12!\n" +
-	"\faccount_name\x18\a \x01(\tR\vaccountName\"\xc7\x01\n" +
+	"\faccount_name\x18\a \x01(\tR\vaccountName\"\x1b\n" +
+	"\x19GuardTransferStartRequest\"P\n" +
+	"\x1aGuardTransferStartResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"7\n" +
+	"\x1aGuardTransferFinishRequest\x12\x19\n" +
+	"\bsms_code\x18\x01 \x01(\tR\asmsCode\"\xdd\x01\n" +
+	"\x1bGuardTransferFinishResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
+	"\rshared_secret\x18\x02 \x01(\tR\fsharedSecret\x12'\n" +
+	"\x0fidentity_secret\x18\x03 \x01(\tR\x0eidentitySecret\x12'\n" +
+	"\x0frevocation_code\x18\x04 \x01(\tR\x0erevocationCode\x12\x1b\n" +
+	"\tdevice_id\x18\x05 \x01(\tR\bdeviceId\x12\x10\n" +
+	"\x03uri\x18\x06 \x01(\tR\x03uri\"4\n" +
+	"\x15GuardLinkStartRequest\x12\x1b\n" +
+	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\"\xa5\x02\n" +
+	"\x16GuardLinkStartResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
+	"\rshared_secret\x18\x02 \x01(\tR\fsharedSecret\x12'\n" +
+	"\x0fidentity_secret\x18\x03 \x01(\tR\x0eidentitySecret\x12'\n" +
+	"\x0frevocation_code\x18\x04 \x01(\tR\x0erevocationCode\x12\x1b\n" +
+	"\tdevice_id\x18\x05 \x01(\tR\bdeviceId\x12\x10\n" +
+	"\x03uri\x18\x06 \x01(\tR\x03uri\x12*\n" +
+	"\x11phone_number_hint\x18\a \x01(\tR\x0fphoneNumberHint\x12\x1f\n" +
+	"\vserver_time\x18\b \x01(\x04R\n" +
+	"serverTime\"\xc1\x01\n" +
+	"\x18GuardLinkFinalizeRequest\x12#\n" +
+	"\rshared_secret\x18\x01 \x01(\tR\fsharedSecret\x12\x1f\n" +
+	"\vserver_time\x18\x02 \x01(\x04R\n" +
+	"serverTime\x12\x19\n" +
+	"\bsms_code\x18\x03 \x01(\tR\asmsCode\x12'\n" +
+	"\x0fidentity_secret\x18\x04 \x01(\tR\x0eidentitySecret\x12\x1b\n" +
+	"\tdevice_id\x18\x05 \x01(\tR\bdeviceId\"O\n" +
+	"\x19GuardLinkFinalizeResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"0\n" +
+	"\x1aGuardSubmitAuthCodeRequest\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\"Q\n" +
+	"\x1bGuardSubmitAuthCodeResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xc7\x01\n" +
 	"\x12GuardImportRequest\x12#\n" +
 	"\rshared_secret\x18\x01 \x01(\tR\fsharedSecret\x12'\n" +
 	"\x0fidentity_secret\x18\x02 \x01(\tR\x0eidentitySecret\x12\x1b\n" +
@@ -1691,7 +2834,50 @@ const file_daemon_proto_rawDesc = "" +
 	"\rrefresh_token\x18\x05 \x01(\tR\frefreshToken\"I\n" +
 	"\x13GuardImportResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2\xa7\a\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"4\n" +
+	"\x12GuardUnlockRequest\x12\x1e\n" +
+	"\n" +
+	"passphrase\x18\x01 \x01(\tR\n" +
+	"passphrase\"I\n" +
+	"\x13GuardUnlockResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"Q\n" +
+	"\x18SetFriendNicknameRequest\x12\x19\n" +
+	"\bsteam_id\x18\x01 \x01(\x04R\asteamId\x12\x1a\n" +
+	"\bnickname\x18\x02 \x01(\tR\bnickname\"O\n" +
+	"\x19SetFriendNicknameResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xea\x02\n" +
+	"\x12ExecRequestRequest\x12'\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x13.daemon.RequestTypeR\x04type\x12\x16\n" +
+	"\x06method\x18\x02 \x01(\tR\x06method\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12>\n" +
+	"\x06params\x18\x04 \x03(\v2&.daemon.ExecRequestRequest.ParamsEntryR\x06params\x12\x12\n" +
+	"\x04body\x18\x05 \x01(\fR\x04body\x12 \n" +
+	"\fis_post_form\x18\x06 \x01(\bR\n" +
+	"isPostForm\x12\x18\n" +
+	"\aversion\x18\a \x01(\x05R\aversion\x12\x1c\n" +
+	"\tinterface\x18\b \x01(\tR\tinterface\x12\x16\n" +
+	"\x06action\x18\t \x01(\tR\x06action\x1a9\n" +
+	"\vParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x98\x02\n" +
+	"\x13ExecRequestResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x12\n" +
+	"\x04body\x18\x03 \x01(\fR\x04body\x12\x1f\n" +
+	"\vstatus_code\x18\x04 \x01(\x05R\n" +
+	"statusCode\x12\x18\n" +
+	"\aeresult\x18\x05 \x01(\rR\aeresult\x12B\n" +
+	"\aheaders\x18\x06 \x03(\v2(.daemon.ExecRequestResponse.HeadersEntryR\aheaders\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*z\n" +
+	"\vRequestType\x12\x1c\n" +
+	"\x18REQUEST_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16REQUEST_TYPE_COMMUNITY\x10\x01\x12\x18\n" +
+	"\x14REQUEST_TYPE_UNIFIED\x10\x02\x12\x17\n" +
+	"\x13REQUEST_TYPE_WEBAPI\x10\x032\xd9\f\n" +
 	"\rDaemonService\x12@\n" +
 	"\tGetStatus\x12\x18.daemon.GetStatusRequest\x1a\x19.daemon.GetStatusResponse\x12C\n" +
 	"\n" +
@@ -1707,8 +2893,16 @@ const file_daemon_proto_rawDesc = "" +
 	"\tGuardCode\x12\x18.daemon.GuardCodeRequest\x1a\x19.daemon.GuardCodeResponse\x12F\n" +
 	"\vGuardStatus\x12\x1a.daemon.GuardStatusRequest\x1a\x1b.daemon.GuardStatusResponse\x12@\n" +
 	"\tGuardList\x12\x18.daemon.GuardListRequest\x1a\x19.daemon.GuardListResponse\x12I\n" +
-	"\fGuardRespond\x12\x1b.daemon.GuardRespondRequest\x1a\x1c.daemon.GuardRespondResponse\x12F\n" +
-	"\vGuardImport\x12\x1a.daemon.GuardImportRequest\x1a\x1b.daemon.GuardImportResponseB.Z,github.com/lemon4ksan/g-man-cli/proto/daemonb\x06proto3"
+	"\fGuardRespond\x12\x1b.daemon.GuardRespondRequest\x1a\x1c.daemon.GuardRespondResponse\x12[\n" +
+	"\x12GuardTransferStart\x12!.daemon.GuardTransferStartRequest\x1a\".daemon.GuardTransferStartResponse\x12^\n" +
+	"\x13GuardTransferFinish\x12\".daemon.GuardTransferFinishRequest\x1a#.daemon.GuardTransferFinishResponse\x12O\n" +
+	"\x0eGuardLinkStart\x12\x1d.daemon.GuardLinkStartRequest\x1a\x1e.daemon.GuardLinkStartResponse\x12X\n" +
+	"\x11GuardLinkFinalize\x12 .daemon.GuardLinkFinalizeRequest\x1a!.daemon.GuardLinkFinalizeResponse\x12^\n" +
+	"\x13GuardSubmitAuthCode\x12\".daemon.GuardSubmitAuthCodeRequest\x1a#.daemon.GuardSubmitAuthCodeResponse\x12F\n" +
+	"\vGuardImport\x12\x1a.daemon.GuardImportRequest\x1a\x1b.daemon.GuardImportResponse\x12F\n" +
+	"\vGuardUnlock\x12\x1a.daemon.GuardUnlockRequest\x1a\x1b.daemon.GuardUnlockResponse\x12X\n" +
+	"\x11SetFriendNickname\x12 .daemon.SetFriendNicknameRequest\x1a!.daemon.SetFriendNicknameResponse\x12F\n" +
+	"\vExecRequest\x12\x1a.daemon.ExecRequestRequest\x1a\x1b.daemon.ExecRequestResponseB.Z,github.com/lemon4ksan/g-man-cli/proto/daemonb\x06proto3"
 
 var (
 	file_daemon_proto_rawDescOnce sync.Once
@@ -1722,79 +2916,118 @@ func file_daemon_proto_rawDescGZIP() []byte {
 	return file_daemon_proto_rawDescData
 }
 
-var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_daemon_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_daemon_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_daemon_proto_goTypes = []any{
-	(*FreeMemoryRequest)(nil),          // 0: daemon.FreeMemoryRequest
-	(*FreeMemoryResponse)(nil),         // 1: daemon.FreeMemoryResponse
-	(*GetStatusRequest)(nil),           // 2: daemon.GetStatusRequest
-	(*GetStatusResponse)(nil),          // 3: daemon.GetStatusResponse
-	(*StopDaemonRequest)(nil),          // 4: daemon.StopDaemonRequest
-	(*StopDaemonResponse)(nil),         // 5: daemon.StopDaemonResponse
-	(*PlayGameRequest)(nil),            // 6: daemon.PlayGameRequest
-	(*PlayGameResponse)(nil),           // 7: daemon.PlayGameResponse
-	(*ExitGameRequest)(nil),            // 8: daemon.ExitGameRequest
-	(*ExitGameResponse)(nil),           // 9: daemon.ExitGameResponse
-	(*Item)(nil),                       // 10: daemon.Item
-	(*ExecActionRequest)(nil),          // 11: daemon.ExecActionRequest
-	(*ExecActionResponse)(nil),         // 12: daemon.ExecActionResponse
-	(*StreamEventsRequest)(nil),        // 13: daemon.StreamEventsRequest
-	(*StreamEventsResponse)(nil),       // 14: daemon.StreamEventsResponse
-	(*ManualPriceEntry)(nil),           // 15: daemon.ManualPriceEntry
-	(*UpdateManualPricesRequest)(nil),  // 16: daemon.UpdateManualPricesRequest
-	(*UpdateManualPricesResponse)(nil), // 17: daemon.UpdateManualPricesResponse
-	(*GuardCodeRequest)(nil),           // 18: daemon.GuardCodeRequest
-	(*GuardCodeResponse)(nil),          // 19: daemon.GuardCodeResponse
-	(*GuardConfirmation)(nil),          // 20: daemon.GuardConfirmation
-	(*GuardListRequest)(nil),           // 21: daemon.GuardListRequest
-	(*GuardListResponse)(nil),          // 22: daemon.GuardListResponse
-	(*GuardRespondRequest)(nil),        // 23: daemon.GuardRespondRequest
-	(*GuardRespondResponse)(nil),       // 24: daemon.GuardRespondResponse
-	(*GuardStatusRequest)(nil),         // 25: daemon.GuardStatusRequest
-	(*GuardStatusResponse)(nil),        // 26: daemon.GuardStatusResponse
-	(*GuardImportRequest)(nil),         // 27: daemon.GuardImportRequest
-	(*GuardImportResponse)(nil),        // 28: daemon.GuardImportResponse
-	nil,                                // 29: daemon.Item.AttributesEntry
-	nil,                                // 30: daemon.ExecActionRequest.ParamsEntry
-	nil,                                // 31: daemon.UpdateManualPricesRequest.PricesEntry
+	(RequestType)(0),                    // 0: daemon.RequestType
+	(*FreeMemoryRequest)(nil),           // 1: daemon.FreeMemoryRequest
+	(*FreeMemoryResponse)(nil),          // 2: daemon.FreeMemoryResponse
+	(*GetStatusRequest)(nil),            // 3: daemon.GetStatusRequest
+	(*GetStatusResponse)(nil),           // 4: daemon.GetStatusResponse
+	(*StopDaemonRequest)(nil),           // 5: daemon.StopDaemonRequest
+	(*StopDaemonResponse)(nil),          // 6: daemon.StopDaemonResponse
+	(*PlayGameRequest)(nil),             // 7: daemon.PlayGameRequest
+	(*PlayGameResponse)(nil),            // 8: daemon.PlayGameResponse
+	(*ExitGameRequest)(nil),             // 9: daemon.ExitGameRequest
+	(*ExitGameResponse)(nil),            // 10: daemon.ExitGameResponse
+	(*Item)(nil),                        // 11: daemon.Item
+	(*ExecActionRequest)(nil),           // 12: daemon.ExecActionRequest
+	(*ExecActionResponse)(nil),          // 13: daemon.ExecActionResponse
+	(*StreamEventsRequest)(nil),         // 14: daemon.StreamEventsRequest
+	(*StreamEventsResponse)(nil),        // 15: daemon.StreamEventsResponse
+	(*ManualPriceEntry)(nil),            // 16: daemon.ManualPriceEntry
+	(*UpdateManualPricesRequest)(nil),   // 17: daemon.UpdateManualPricesRequest
+	(*UpdateManualPricesResponse)(nil),  // 18: daemon.UpdateManualPricesResponse
+	(*GuardCodeRequest)(nil),            // 19: daemon.GuardCodeRequest
+	(*GuardCodeResponse)(nil),           // 20: daemon.GuardCodeResponse
+	(*GuardConfirmation)(nil),           // 21: daemon.GuardConfirmation
+	(*GuardListRequest)(nil),            // 22: daemon.GuardListRequest
+	(*GuardListResponse)(nil),           // 23: daemon.GuardListResponse
+	(*GuardRespondRequest)(nil),         // 24: daemon.GuardRespondRequest
+	(*GuardRespondResponse)(nil),        // 25: daemon.GuardRespondResponse
+	(*GuardStatusRequest)(nil),          // 26: daemon.GuardStatusRequest
+	(*GuardStatusResponse)(nil),         // 27: daemon.GuardStatusResponse
+	(*GuardTransferStartRequest)(nil),   // 28: daemon.GuardTransferStartRequest
+	(*GuardTransferStartResponse)(nil),  // 29: daemon.GuardTransferStartResponse
+	(*GuardTransferFinishRequest)(nil),  // 30: daemon.GuardTransferFinishRequest
+	(*GuardTransferFinishResponse)(nil), // 31: daemon.GuardTransferFinishResponse
+	(*GuardLinkStartRequest)(nil),       // 32: daemon.GuardLinkStartRequest
+	(*GuardLinkStartResponse)(nil),      // 33: daemon.GuardLinkStartResponse
+	(*GuardLinkFinalizeRequest)(nil),    // 34: daemon.GuardLinkFinalizeRequest
+	(*GuardLinkFinalizeResponse)(nil),   // 35: daemon.GuardLinkFinalizeResponse
+	(*GuardSubmitAuthCodeRequest)(nil),  // 36: daemon.GuardSubmitAuthCodeRequest
+	(*GuardSubmitAuthCodeResponse)(nil), // 37: daemon.GuardSubmitAuthCodeResponse
+	(*GuardImportRequest)(nil),          // 38: daemon.GuardImportRequest
+	(*GuardImportResponse)(nil),         // 39: daemon.GuardImportResponse
+	(*GuardUnlockRequest)(nil),          // 40: daemon.GuardUnlockRequest
+	(*GuardUnlockResponse)(nil),         // 41: daemon.GuardUnlockResponse
+	(*SetFriendNicknameRequest)(nil),    // 42: daemon.SetFriendNicknameRequest
+	(*SetFriendNicknameResponse)(nil),   // 43: daemon.SetFriendNicknameResponse
+	(*ExecRequestRequest)(nil),          // 44: daemon.ExecRequestRequest
+	(*ExecRequestResponse)(nil),         // 45: daemon.ExecRequestResponse
+	nil,                                 // 46: daemon.Item.AttributesEntry
+	nil,                                 // 47: daemon.ExecActionRequest.ParamsEntry
+	nil,                                 // 48: daemon.UpdateManualPricesRequest.PricesEntry
+	nil,                                 // 49: daemon.ExecRequestRequest.ParamsEntry
+	nil,                                 // 50: daemon.ExecRequestResponse.HeadersEntry
 }
 var file_daemon_proto_depIdxs = []int32{
-	29, // 0: daemon.Item.attributes:type_name -> daemon.Item.AttributesEntry
-	30, // 1: daemon.ExecActionRequest.params:type_name -> daemon.ExecActionRequest.ParamsEntry
-	10, // 2: daemon.ExecActionResponse.items:type_name -> daemon.Item
-	31, // 3: daemon.UpdateManualPricesRequest.prices:type_name -> daemon.UpdateManualPricesRequest.PricesEntry
-	20, // 4: daemon.GuardListResponse.confirmations:type_name -> daemon.GuardConfirmation
-	15, // 5: daemon.UpdateManualPricesRequest.PricesEntry.value:type_name -> daemon.ManualPriceEntry
-	2,  // 6: daemon.DaemonService.GetStatus:input_type -> daemon.GetStatusRequest
-	4,  // 7: daemon.DaemonService.StopDaemon:input_type -> daemon.StopDaemonRequest
-	6,  // 8: daemon.DaemonService.PlayGame:input_type -> daemon.PlayGameRequest
-	8,  // 9: daemon.DaemonService.ExitGame:input_type -> daemon.ExitGameRequest
-	11, // 10: daemon.DaemonService.ExecAction:input_type -> daemon.ExecActionRequest
-	0,  // 11: daemon.DaemonService.FreeMemory:input_type -> daemon.FreeMemoryRequest
-	13, // 12: daemon.DaemonService.StreamEvents:input_type -> daemon.StreamEventsRequest
-	16, // 13: daemon.DaemonService.UpdateManualPrices:input_type -> daemon.UpdateManualPricesRequest
-	18, // 14: daemon.DaemonService.GuardCode:input_type -> daemon.GuardCodeRequest
-	25, // 15: daemon.DaemonService.GuardStatus:input_type -> daemon.GuardStatusRequest
-	21, // 16: daemon.DaemonService.GuardList:input_type -> daemon.GuardListRequest
-	23, // 17: daemon.DaemonService.GuardRespond:input_type -> daemon.GuardRespondRequest
-	27, // 18: daemon.DaemonService.GuardImport:input_type -> daemon.GuardImportRequest
-	3,  // 19: daemon.DaemonService.GetStatus:output_type -> daemon.GetStatusResponse
-	5,  // 20: daemon.DaemonService.StopDaemon:output_type -> daemon.StopDaemonResponse
-	7,  // 21: daemon.DaemonService.PlayGame:output_type -> daemon.PlayGameResponse
-	9,  // 22: daemon.DaemonService.ExitGame:output_type -> daemon.ExitGameResponse
-	12, // 23: daemon.DaemonService.ExecAction:output_type -> daemon.ExecActionResponse
-	1,  // 24: daemon.DaemonService.FreeMemory:output_type -> daemon.FreeMemoryResponse
-	14, // 25: daemon.DaemonService.StreamEvents:output_type -> daemon.StreamEventsResponse
-	17, // 26: daemon.DaemonService.UpdateManualPrices:output_type -> daemon.UpdateManualPricesResponse
-	19, // 27: daemon.DaemonService.GuardCode:output_type -> daemon.GuardCodeResponse
-	26, // 28: daemon.DaemonService.GuardStatus:output_type -> daemon.GuardStatusResponse
-	22, // 29: daemon.DaemonService.GuardList:output_type -> daemon.GuardListResponse
-	24, // 30: daemon.DaemonService.GuardRespond:output_type -> daemon.GuardRespondResponse
-	28, // 31: daemon.DaemonService.GuardImport:output_type -> daemon.GuardImportResponse
-	19, // [19:32] is the sub-list for method output_type
-	6,  // [6:19] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	46, // 0: daemon.Item.attributes:type_name -> daemon.Item.AttributesEntry
+	47, // 1: daemon.ExecActionRequest.params:type_name -> daemon.ExecActionRequest.ParamsEntry
+	11, // 2: daemon.ExecActionResponse.items:type_name -> daemon.Item
+	48, // 3: daemon.UpdateManualPricesRequest.prices:type_name -> daemon.UpdateManualPricesRequest.PricesEntry
+	21, // 4: daemon.GuardListResponse.confirmations:type_name -> daemon.GuardConfirmation
+	0,  // 5: daemon.ExecRequestRequest.type:type_name -> daemon.RequestType
+	49, // 6: daemon.ExecRequestRequest.params:type_name -> daemon.ExecRequestRequest.ParamsEntry
+	50, // 7: daemon.ExecRequestResponse.headers:type_name -> daemon.ExecRequestResponse.HeadersEntry
+	16, // 8: daemon.UpdateManualPricesRequest.PricesEntry.value:type_name -> daemon.ManualPriceEntry
+	3,  // 9: daemon.DaemonService.GetStatus:input_type -> daemon.GetStatusRequest
+	5,  // 10: daemon.DaemonService.StopDaemon:input_type -> daemon.StopDaemonRequest
+	7,  // 11: daemon.DaemonService.PlayGame:input_type -> daemon.PlayGameRequest
+	9,  // 12: daemon.DaemonService.ExitGame:input_type -> daemon.ExitGameRequest
+	12, // 13: daemon.DaemonService.ExecAction:input_type -> daemon.ExecActionRequest
+	1,  // 14: daemon.DaemonService.FreeMemory:input_type -> daemon.FreeMemoryRequest
+	14, // 15: daemon.DaemonService.StreamEvents:input_type -> daemon.StreamEventsRequest
+	17, // 16: daemon.DaemonService.UpdateManualPrices:input_type -> daemon.UpdateManualPricesRequest
+	19, // 17: daemon.DaemonService.GuardCode:input_type -> daemon.GuardCodeRequest
+	26, // 18: daemon.DaemonService.GuardStatus:input_type -> daemon.GuardStatusRequest
+	22, // 19: daemon.DaemonService.GuardList:input_type -> daemon.GuardListRequest
+	24, // 20: daemon.DaemonService.GuardRespond:input_type -> daemon.GuardRespondRequest
+	28, // 21: daemon.DaemonService.GuardTransferStart:input_type -> daemon.GuardTransferStartRequest
+	30, // 22: daemon.DaemonService.GuardTransferFinish:input_type -> daemon.GuardTransferFinishRequest
+	32, // 23: daemon.DaemonService.GuardLinkStart:input_type -> daemon.GuardLinkStartRequest
+	34, // 24: daemon.DaemonService.GuardLinkFinalize:input_type -> daemon.GuardLinkFinalizeRequest
+	36, // 25: daemon.DaemonService.GuardSubmitAuthCode:input_type -> daemon.GuardSubmitAuthCodeRequest
+	38, // 26: daemon.DaemonService.GuardImport:input_type -> daemon.GuardImportRequest
+	40, // 27: daemon.DaemonService.GuardUnlock:input_type -> daemon.GuardUnlockRequest
+	42, // 28: daemon.DaemonService.SetFriendNickname:input_type -> daemon.SetFriendNicknameRequest
+	44, // 29: daemon.DaemonService.ExecRequest:input_type -> daemon.ExecRequestRequest
+	4,  // 30: daemon.DaemonService.GetStatus:output_type -> daemon.GetStatusResponse
+	6,  // 31: daemon.DaemonService.StopDaemon:output_type -> daemon.StopDaemonResponse
+	8,  // 32: daemon.DaemonService.PlayGame:output_type -> daemon.PlayGameResponse
+	10, // 33: daemon.DaemonService.ExitGame:output_type -> daemon.ExitGameResponse
+	13, // 34: daemon.DaemonService.ExecAction:output_type -> daemon.ExecActionResponse
+	2,  // 35: daemon.DaemonService.FreeMemory:output_type -> daemon.FreeMemoryResponse
+	15, // 36: daemon.DaemonService.StreamEvents:output_type -> daemon.StreamEventsResponse
+	18, // 37: daemon.DaemonService.UpdateManualPrices:output_type -> daemon.UpdateManualPricesResponse
+	20, // 38: daemon.DaemonService.GuardCode:output_type -> daemon.GuardCodeResponse
+	27, // 39: daemon.DaemonService.GuardStatus:output_type -> daemon.GuardStatusResponse
+	23, // 40: daemon.DaemonService.GuardList:output_type -> daemon.GuardListResponse
+	25, // 41: daemon.DaemonService.GuardRespond:output_type -> daemon.GuardRespondResponse
+	29, // 42: daemon.DaemonService.GuardTransferStart:output_type -> daemon.GuardTransferStartResponse
+	31, // 43: daemon.DaemonService.GuardTransferFinish:output_type -> daemon.GuardTransferFinishResponse
+	33, // 44: daemon.DaemonService.GuardLinkStart:output_type -> daemon.GuardLinkStartResponse
+	35, // 45: daemon.DaemonService.GuardLinkFinalize:output_type -> daemon.GuardLinkFinalizeResponse
+	37, // 46: daemon.DaemonService.GuardSubmitAuthCode:output_type -> daemon.GuardSubmitAuthCodeResponse
+	39, // 47: daemon.DaemonService.GuardImport:output_type -> daemon.GuardImportResponse
+	41, // 48: daemon.DaemonService.GuardUnlock:output_type -> daemon.GuardUnlockResponse
+	43, // 49: daemon.DaemonService.SetFriendNickname:output_type -> daemon.SetFriendNicknameResponse
+	45, // 50: daemon.DaemonService.ExecRequest:output_type -> daemon.ExecRequestResponse
+	30, // [30:51] is the sub-list for method output_type
+	9,  // [9:30] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_daemon_proto_init() }
@@ -1807,13 +3040,14 @@ func file_daemon_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_daemon_proto_rawDesc), len(file_daemon_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   32,
+			NumEnums:      1,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_daemon_proto_goTypes,
 		DependencyIndexes: file_daemon_proto_depIdxs,
+		EnumInfos:         file_daemon_proto_enumTypes,
 		MessageInfos:      file_daemon_proto_msgTypes,
 	}.Build()
 	File_daemon_proto = out.File

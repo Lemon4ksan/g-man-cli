@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
-	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2"
+	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
 )
 
 func TestGameRegistry(t *testing.T) {

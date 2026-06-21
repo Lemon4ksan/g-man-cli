@@ -49,7 +49,7 @@ clean: ## Delete temporary files and binaries
 	rm -f coverage.out
 
 format: ## Run go code formatting
-	addlicense -c "Lemon4ksan" -l bsd -ignore "proto/**" -ignore "**/*.yml" .
+	addlicense -c "Lemon4ksan" -l bsd -ignore "proto/**" -ignore "tf2autobot/**" -ignore "**/*.yml" .
 	golangci-lint run --fix
 
 help: ## Show this message

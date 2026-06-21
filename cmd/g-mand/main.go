@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	// _ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -80,7 +81,7 @@ func run() error {
 	shutdownCtx, shutdownFunc := context.WithCancel(context.Background())
 	defer shutdownFunc()
 
-	listener, path, err := GetIPCListener()
+	listener, path, err := GetIPCListener(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Failed to listen on IPC interface:", err)
 		return err
@@ -91,6 +92,7 @@ func run() error {
 		logger.Error("Failed to initialize daemon", log.Err(err))
 		return err
 	}
+	defer daemon.Close()
 
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(64*1024*1024),
@@ -127,7 +129,6 @@ func run() error {
 
 	logger.Info("Initiating graceful shutdown...")
 	grpcServer.GracefulStop()
-	daemon.Close()
 
 	if listener.Addr().Network() == "unix" {
 		_ = os.Remove(path)

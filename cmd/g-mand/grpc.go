@@ -13,7 +13,7 @@ import (
 	"runtime"
 )
 
-func GetIPCListener() (net.Listener, string, error) {
+func GetIPCListener(cfg Config) (net.Listener, string, error) {
 	netType := os.Getenv("GMAN_IPC_NET")
 	addr := os.Getenv("GMAN_IPC_ADDR")
 
@@ -29,7 +29,7 @@ func GetIPCListener() (net.Listener, string, error) {
 		if netType == "tcp" {
 			addr = "127.0.0.1:50051"
 		} else {
-			addr = defaultSockPath()
+			addr = cfg.SocketPath
 		}
 	}
 

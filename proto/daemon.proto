@@ -19,7 +19,15 @@ service DaemonService {
   rpc GuardStatus(GuardStatusRequest) returns (GuardStatusResponse);
   rpc GuardList(GuardListRequest) returns (GuardListResponse);
   rpc GuardRespond(GuardRespondRequest) returns (GuardRespondResponse);
+  rpc GuardTransferStart(GuardTransferStartRequest) returns (GuardTransferStartResponse);
+  rpc GuardTransferFinish(GuardTransferFinishRequest) returns (GuardTransferFinishResponse);
+  rpc GuardLinkStart(GuardLinkStartRequest) returns (GuardLinkStartResponse);
+  rpc GuardLinkFinalize(GuardLinkFinalizeRequest) returns (GuardLinkFinalizeResponse);
+  rpc GuardSubmitAuthCode(GuardSubmitAuthCodeRequest) returns (GuardSubmitAuthCodeResponse);
   rpc GuardImport(GuardImportRequest) returns (GuardImportResponse);
+  rpc GuardUnlock(GuardUnlockRequest) returns (GuardUnlockResponse);
+  rpc SetFriendNickname(SetFriendNicknameRequest) returns (SetFriendNicknameResponse);
+  rpc ExecRequest(ExecRequestRequest) returns (ExecRequestResponse);
 }
 
 message FreeMemoryRequest {}
@@ -38,7 +46,15 @@ message GetStatusResponse {
   string uptime = 4;
   uint64 memory_bytes = 5;
   string current_app_name = 6;
-  string persona_name = 7;
+  bool locked = 7;
+  string persona_name = 8;
+  string ip_country = 9;
+  int64 wallet_balance = 10;
+  string wallet_currency = 11;
+  bool is_limited = 12;
+  bool is_community_banned = 13;
+  uint32 vac_bans_count = 14;
+  string email_address = 15;
 }
 
 message StopDaemonRequest {}
@@ -148,6 +164,59 @@ message GuardStatusResponse {
   string account_name = 7;
 }
 
+message GuardTransferStartRequest {}
+message GuardTransferStartResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GuardTransferFinishRequest {
+  string sms_code = 1;
+}
+message GuardTransferFinishResponse {
+  bool success = 1;
+  string shared_secret = 2;
+  string identity_secret = 3;
+  string revocation_code = 4;
+  string device_id = 5;
+  string uri = 6;
+}
+
+message GuardLinkStartRequest {
+  string device_id = 1;
+}
+message GuardLinkStartResponse {
+  bool success = 1;
+  string shared_secret = 2;
+  string identity_secret = 3;
+  string revocation_code = 4;
+  string device_id = 5;
+  string uri = 6;
+  string phone_number_hint = 7;
+  uint64 server_time = 8;
+}
+
+message GuardLinkFinalizeRequest {
+  string shared_secret = 1;
+  uint64 server_time = 2;
+  string sms_code = 3;
+  string identity_secret = 4;
+  string device_id = 5;
+}
+message GuardLinkFinalizeResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GuardSubmitAuthCodeRequest {
+  string code = 1;
+}
+
+message GuardSubmitAuthCodeResponse {
+  bool success = 1;
+  string message = 2;
+}
+
 message GuardImportRequest {
   string shared_secret = 1;
   string identity_secret = 2;
@@ -159,4 +228,51 @@ message GuardImportRequest {
 message GuardImportResponse {
   bool success = 1;
   string message = 2;
+}
+
+message GuardUnlockRequest {
+  string passphrase = 1;
+}
+
+message GuardUnlockResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message SetFriendNicknameRequest {
+  uint64 steam_id = 1;
+  string nickname = 2;
+}
+
+message SetFriendNicknameResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+enum RequestType {
+  REQUEST_TYPE_UNSPECIFIED = 0;
+  REQUEST_TYPE_COMMUNITY = 1;
+  REQUEST_TYPE_UNIFIED = 2;
+  REQUEST_TYPE_WEBAPI = 3;
+}
+
+message ExecRequestRequest {
+  RequestType type = 1;
+  string method = 2;
+  string path = 3;
+  map<string, string> params = 4;
+  bytes body = 5;
+  bool is_post_form = 6;
+  int32 version = 7;
+  string interface = 8;
+  string action = 9;
+}
+
+message ExecRequestResponse {
+  bool success = 1;
+  string message = 2;
+  bytes body = 3;
+  int32 status_code = 4;
+  uint32 eresult = 5;
+  map<string, string> headers = 6;
 }

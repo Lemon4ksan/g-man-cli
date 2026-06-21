@@ -19,19 +19,27 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DaemonService_GetStatus_FullMethodName          = "/daemon.DaemonService/GetStatus"
-	DaemonService_StopDaemon_FullMethodName         = "/daemon.DaemonService/StopDaemon"
-	DaemonService_PlayGame_FullMethodName           = "/daemon.DaemonService/PlayGame"
-	DaemonService_ExitGame_FullMethodName           = "/daemon.DaemonService/ExitGame"
-	DaemonService_ExecAction_FullMethodName         = "/daemon.DaemonService/ExecAction"
-	DaemonService_FreeMemory_FullMethodName         = "/daemon.DaemonService/FreeMemory"
-	DaemonService_StreamEvents_FullMethodName       = "/daemon.DaemonService/StreamEvents"
-	DaemonService_UpdateManualPrices_FullMethodName = "/daemon.DaemonService/UpdateManualPrices"
-	DaemonService_GuardCode_FullMethodName          = "/daemon.DaemonService/GuardCode"
-	DaemonService_GuardStatus_FullMethodName        = "/daemon.DaemonService/GuardStatus"
-	DaemonService_GuardList_FullMethodName          = "/daemon.DaemonService/GuardList"
-	DaemonService_GuardRespond_FullMethodName       = "/daemon.DaemonService/GuardRespond"
-	DaemonService_GuardImport_FullMethodName        = "/daemon.DaemonService/GuardImport"
+	DaemonService_GetStatus_FullMethodName           = "/daemon.DaemonService/GetStatus"
+	DaemonService_StopDaemon_FullMethodName          = "/daemon.DaemonService/StopDaemon"
+	DaemonService_PlayGame_FullMethodName            = "/daemon.DaemonService/PlayGame"
+	DaemonService_ExitGame_FullMethodName            = "/daemon.DaemonService/ExitGame"
+	DaemonService_ExecAction_FullMethodName          = "/daemon.DaemonService/ExecAction"
+	DaemonService_FreeMemory_FullMethodName          = "/daemon.DaemonService/FreeMemory"
+	DaemonService_StreamEvents_FullMethodName        = "/daemon.DaemonService/StreamEvents"
+	DaemonService_UpdateManualPrices_FullMethodName  = "/daemon.DaemonService/UpdateManualPrices"
+	DaemonService_GuardCode_FullMethodName           = "/daemon.DaemonService/GuardCode"
+	DaemonService_GuardStatus_FullMethodName         = "/daemon.DaemonService/GuardStatus"
+	DaemonService_GuardList_FullMethodName           = "/daemon.DaemonService/GuardList"
+	DaemonService_GuardRespond_FullMethodName        = "/daemon.DaemonService/GuardRespond"
+	DaemonService_GuardTransferStart_FullMethodName  = "/daemon.DaemonService/GuardTransferStart"
+	DaemonService_GuardTransferFinish_FullMethodName = "/daemon.DaemonService/GuardTransferFinish"
+	DaemonService_GuardLinkStart_FullMethodName      = "/daemon.DaemonService/GuardLinkStart"
+	DaemonService_GuardLinkFinalize_FullMethodName   = "/daemon.DaemonService/GuardLinkFinalize"
+	DaemonService_GuardSubmitAuthCode_FullMethodName = "/daemon.DaemonService/GuardSubmitAuthCode"
+	DaemonService_GuardImport_FullMethodName         = "/daemon.DaemonService/GuardImport"
+	DaemonService_GuardUnlock_FullMethodName         = "/daemon.DaemonService/GuardUnlock"
+	DaemonService_SetFriendNickname_FullMethodName   = "/daemon.DaemonService/SetFriendNickname"
+	DaemonService_ExecRequest_FullMethodName         = "/daemon.DaemonService/ExecRequest"
 )
 
 // DaemonServiceClient is the client API for DaemonService service.
@@ -50,7 +58,15 @@ type DaemonServiceClient interface {
 	GuardStatus(ctx context.Context, in *GuardStatusRequest, opts ...grpc.CallOption) (*GuardStatusResponse, error)
 	GuardList(ctx context.Context, in *GuardListRequest, opts ...grpc.CallOption) (*GuardListResponse, error)
 	GuardRespond(ctx context.Context, in *GuardRespondRequest, opts ...grpc.CallOption) (*GuardRespondResponse, error)
+	GuardTransferStart(ctx context.Context, in *GuardTransferStartRequest, opts ...grpc.CallOption) (*GuardTransferStartResponse, error)
+	GuardTransferFinish(ctx context.Context, in *GuardTransferFinishRequest, opts ...grpc.CallOption) (*GuardTransferFinishResponse, error)
+	GuardLinkStart(ctx context.Context, in *GuardLinkStartRequest, opts ...grpc.CallOption) (*GuardLinkStartResponse, error)
+	GuardLinkFinalize(ctx context.Context, in *GuardLinkFinalizeRequest, opts ...grpc.CallOption) (*GuardLinkFinalizeResponse, error)
+	GuardSubmitAuthCode(ctx context.Context, in *GuardSubmitAuthCodeRequest, opts ...grpc.CallOption) (*GuardSubmitAuthCodeResponse, error)
 	GuardImport(ctx context.Context, in *GuardImportRequest, opts ...grpc.CallOption) (*GuardImportResponse, error)
+	GuardUnlock(ctx context.Context, in *GuardUnlockRequest, opts ...grpc.CallOption) (*GuardUnlockResponse, error)
+	SetFriendNickname(ctx context.Context, in *SetFriendNicknameRequest, opts ...grpc.CallOption) (*SetFriendNicknameResponse, error)
+	ExecRequest(ctx context.Context, in *ExecRequestRequest, opts ...grpc.CallOption) (*ExecRequestResponse, error)
 }
 
 type daemonServiceClient struct {
@@ -190,10 +206,90 @@ func (c *daemonServiceClient) GuardRespond(ctx context.Context, in *GuardRespond
 	return out, nil
 }
 
+func (c *daemonServiceClient) GuardTransferStart(ctx context.Context, in *GuardTransferStartRequest, opts ...grpc.CallOption) (*GuardTransferStartResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardTransferStartResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardTransferStart_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardTransferFinish(ctx context.Context, in *GuardTransferFinishRequest, opts ...grpc.CallOption) (*GuardTransferFinishResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardTransferFinishResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardTransferFinish_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardLinkStart(ctx context.Context, in *GuardLinkStartRequest, opts ...grpc.CallOption) (*GuardLinkStartResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardLinkStartResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardLinkStart_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardLinkFinalize(ctx context.Context, in *GuardLinkFinalizeRequest, opts ...grpc.CallOption) (*GuardLinkFinalizeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardLinkFinalizeResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardLinkFinalize_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardSubmitAuthCode(ctx context.Context, in *GuardSubmitAuthCodeRequest, opts ...grpc.CallOption) (*GuardSubmitAuthCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardSubmitAuthCodeResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardSubmitAuthCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) GuardImport(ctx context.Context, in *GuardImportRequest, opts ...grpc.CallOption) (*GuardImportResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GuardImportResponse)
 	err := c.cc.Invoke(ctx, DaemonService_GuardImport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) GuardUnlock(ctx context.Context, in *GuardUnlockRequest, opts ...grpc.CallOption) (*GuardUnlockResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GuardUnlockResponse)
+	err := c.cc.Invoke(ctx, DaemonService_GuardUnlock_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) SetFriendNickname(ctx context.Context, in *SetFriendNicknameRequest, opts ...grpc.CallOption) (*SetFriendNicknameResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetFriendNicknameResponse)
+	err := c.cc.Invoke(ctx, DaemonService_SetFriendNickname_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) ExecRequest(ctx context.Context, in *ExecRequestRequest, opts ...grpc.CallOption) (*ExecRequestResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExecRequestResponse)
+	err := c.cc.Invoke(ctx, DaemonService_ExecRequest_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +312,15 @@ type DaemonServiceServer interface {
 	GuardStatus(context.Context, *GuardStatusRequest) (*GuardStatusResponse, error)
 	GuardList(context.Context, *GuardListRequest) (*GuardListResponse, error)
 	GuardRespond(context.Context, *GuardRespondRequest) (*GuardRespondResponse, error)
+	GuardTransferStart(context.Context, *GuardTransferStartRequest) (*GuardTransferStartResponse, error)
+	GuardTransferFinish(context.Context, *GuardTransferFinishRequest) (*GuardTransferFinishResponse, error)
+	GuardLinkStart(context.Context, *GuardLinkStartRequest) (*GuardLinkStartResponse, error)
+	GuardLinkFinalize(context.Context, *GuardLinkFinalizeRequest) (*GuardLinkFinalizeResponse, error)
+	GuardSubmitAuthCode(context.Context, *GuardSubmitAuthCodeRequest) (*GuardSubmitAuthCodeResponse, error)
 	GuardImport(context.Context, *GuardImportRequest) (*GuardImportResponse, error)
+	GuardUnlock(context.Context, *GuardUnlockRequest) (*GuardUnlockResponse, error)
+	SetFriendNickname(context.Context, *SetFriendNicknameRequest) (*SetFriendNicknameResponse, error)
+	ExecRequest(context.Context, *ExecRequestRequest) (*ExecRequestResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
 
@@ -263,8 +367,32 @@ func (UnimplementedDaemonServiceServer) GuardList(context.Context, *GuardListReq
 func (UnimplementedDaemonServiceServer) GuardRespond(context.Context, *GuardRespondRequest) (*GuardRespondResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GuardRespond not implemented")
 }
+func (UnimplementedDaemonServiceServer) GuardTransferStart(context.Context, *GuardTransferStartRequest) (*GuardTransferStartResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardTransferStart not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardTransferFinish(context.Context, *GuardTransferFinishRequest) (*GuardTransferFinishResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardTransferFinish not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardLinkStart(context.Context, *GuardLinkStartRequest) (*GuardLinkStartResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardLinkStart not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardLinkFinalize(context.Context, *GuardLinkFinalizeRequest) (*GuardLinkFinalizeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardLinkFinalize not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardSubmitAuthCode(context.Context, *GuardSubmitAuthCodeRequest) (*GuardSubmitAuthCodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardSubmitAuthCode not implemented")
+}
 func (UnimplementedDaemonServiceServer) GuardImport(context.Context, *GuardImportRequest) (*GuardImportResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GuardImport not implemented")
+}
+func (UnimplementedDaemonServiceServer) GuardUnlock(context.Context, *GuardUnlockRequest) (*GuardUnlockResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GuardUnlock not implemented")
+}
+func (UnimplementedDaemonServiceServer) SetFriendNickname(context.Context, *SetFriendNicknameRequest) (*SetFriendNicknameResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetFriendNickname not implemented")
+}
+func (UnimplementedDaemonServiceServer) ExecRequest(context.Context, *ExecRequestRequest) (*ExecRequestResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExecRequest not implemented")
 }
 func (UnimplementedDaemonServiceServer) mustEmbedUnimplementedDaemonServiceServer() {}
 func (UnimplementedDaemonServiceServer) testEmbeddedByValue()                       {}
@@ -496,6 +624,96 @@ func _DaemonService_GuardRespond_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_GuardTransferStart_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardTransferStartRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardTransferStart(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardTransferStart_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardTransferStart(ctx, req.(*GuardTransferStartRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardTransferFinish_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardTransferFinishRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardTransferFinish(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardTransferFinish_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardTransferFinish(ctx, req.(*GuardTransferFinishRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardLinkStart_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardLinkStartRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardLinkStart(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardLinkStart_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardLinkStart(ctx, req.(*GuardLinkStartRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardLinkFinalize_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardLinkFinalizeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardLinkFinalize(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardLinkFinalize_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardLinkFinalize(ctx, req.(*GuardLinkFinalizeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardSubmitAuthCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardSubmitAuthCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardSubmitAuthCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardSubmitAuthCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardSubmitAuthCode(ctx, req.(*GuardSubmitAuthCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_GuardImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GuardImportRequest)
 	if err := dec(in); err != nil {
@@ -510,6 +728,60 @@ func _DaemonService_GuardImport_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).GuardImport(ctx, req.(*GuardImportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_GuardUnlock_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GuardUnlockRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).GuardUnlock(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_GuardUnlock_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).GuardUnlock(ctx, req.(*GuardUnlockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_SetFriendNickname_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetFriendNicknameRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).SetFriendNickname(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_SetFriendNickname_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).SetFriendNickname(ctx, req.(*SetFriendNicknameRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_ExecRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecRequestRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ExecRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_ExecRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ExecRequest(ctx, req.(*ExecRequestRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -566,8 +838,40 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DaemonService_GuardRespond_Handler,
 		},
 		{
+			MethodName: "GuardTransferStart",
+			Handler:    _DaemonService_GuardTransferStart_Handler,
+		},
+		{
+			MethodName: "GuardTransferFinish",
+			Handler:    _DaemonService_GuardTransferFinish_Handler,
+		},
+		{
+			MethodName: "GuardLinkStart",
+			Handler:    _DaemonService_GuardLinkStart_Handler,
+		},
+		{
+			MethodName: "GuardLinkFinalize",
+			Handler:    _DaemonService_GuardLinkFinalize_Handler,
+		},
+		{
+			MethodName: "GuardSubmitAuthCode",
+			Handler:    _DaemonService_GuardSubmitAuthCode_Handler,
+		},
+		{
 			MethodName: "GuardImport",
 			Handler:    _DaemonService_GuardImport_Handler,
+		},
+		{
+			MethodName: "GuardUnlock",
+			Handler:    _DaemonService_GuardUnlock_Handler,
+		},
+		{
+			MethodName: "SetFriendNickname",
+			Handler:    _DaemonService_SetFriendNickname_Handler,
+		},
+		{
+			MethodName: "ExecRequest",
+			Handler:    _DaemonService_ExecRequest_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
