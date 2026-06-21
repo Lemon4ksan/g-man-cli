@@ -420,6 +420,7 @@ func (s *Daemon) GuardImport(
 				if pad := len(payloadStr) % 4; pad != 0 {
 					payloadStr += strings.Repeat("=", 4-pad)
 				}
+
 				if payload, err := base64.URLEncoding.DecodeString(payloadStr); err == nil {
 					var claims struct {
 						Sub string `json:"sub"`
@@ -437,6 +438,7 @@ func (s *Daemon) GuardImport(
 			devID = crypto.GetDeviceID(steamID)
 		} else {
 			var r [16]byte
+
 			_, _ = rand.Read(r[:])
 			sum := hex.EncodeToString(r[:])
 			devID = fmt.Sprintf("android:%s-%s-%s-%s-%s",

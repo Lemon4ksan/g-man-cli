@@ -242,12 +242,15 @@ func main() {
 	case "guard":
 		if len(os.Args) < 3 {
 			printGuardUsage()
+
 			exitCode = 1
+
 			return
 		}
 
 		if err := handleGuardCommand(ctx, client, os.Args[2], os.Args[3:]); err != nil {
 			fmt.Printf("%sError: %v%s\n", ColorRed, err, ColorReset)
+
 			exitCode = 1
 		}
 
@@ -509,5 +512,3 @@ func handleUpdatePrices(ctx context.Context, client pb.DaemonServiceClient, pric
 		fmt.Printf("%sFailed: %s%s\n", ColorRed, resp.GetMessage(), ColorReset)
 	}
 }
-
-

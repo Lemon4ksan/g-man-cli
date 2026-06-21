@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
@@ -17,14 +18,12 @@ import (
 	"strconv"
 	"strings"
 
-	"crypto/rand"
-
+	corecrypto "github.com/lemon4ksan/g-man/pkg/crypto"
+	"github.com/lemon4ksan/miyako/generic"
 	"github.com/skip2/go-qrcode"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	corecrypto "github.com/lemon4ksan/g-man/pkg/crypto"
-	"github.com/lemon4ksan/miyako/generic"
 	guardcrypto "github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 	guarddriver "github.com/lemon4ksan/g-man-cli/pkg/guard/driver"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
@@ -319,7 +318,7 @@ func handleGuardCommand(ctx context.Context, client pb.DaemonServiceClient, subc
 			Tokens         struct {
 				RefreshToken string `json:"refresh_token"`
 			} `json:"tokens"`
-			Session        struct {
+			Session struct {
 				SteamID string `json:"SteamID"`
 			} `json:"Session"`
 		}
@@ -646,7 +645,7 @@ func handleGuardImportOffline(args []string) error {
 		Tokens         struct {
 			RefreshToken string `json:"refresh_token"`
 		} `json:"tokens"`
-		Session        struct {
+		Session struct {
 			SteamID string `json:"SteamID"`
 		} `json:"Session"`
 	}
@@ -861,7 +860,7 @@ func decryptEnvFile(passphrase string) error {
 	return nil
 }
 
-func getOrGenerateDeviceID(deviceID string, steamIDStr string, refreshToken string) string {
+func getOrGenerateDeviceID(deviceID, steamIDStr, refreshToken string) string {
 	if deviceID != "" {
 		return deviceID
 	}
@@ -883,10 +882,12 @@ func getOrGenerateDeviceID(deviceID string, steamIDStr string, refreshToken stri
 			if pad := len(payloadStr) % 4; pad != 0 {
 				payloadStr += strings.Repeat("=", 4-pad)
 			}
+
 			payload, err := base64.URLEncoding.DecodeString(payloadStr)
 			if err != nil {
 				payload, _ = base64.RawURLEncoding.DecodeString(parts[1])
 			}
+
 			if len(payload) > 0 {
 				var claims struct {
 					Sub string `json:"sub"`
@@ -906,8 +907,10 @@ func getOrGenerateDeviceID(deviceID string, steamIDStr string, refreshToken stri
 
 	// Fallback to a random device ID if we cannot find the SteamID
 	var r [16]byte
+
 	_, _ = rand.Read(r[:])
 	sum := hex.EncodeToString(r[:])
+
 	return fmt.Sprintf("android:%s-%s-%s-%s-%s",
 		sum[:8],
 		sum[8:12],

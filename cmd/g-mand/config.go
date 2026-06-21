@@ -96,8 +96,10 @@ func loadEnvConfig() (Config, error) {
 		refreshToken = flagRefreshToken
 	}
 
-	if username == "" {
-		return Config{}, errors.New("STEAM_USER environment variable or -username flag is required")
+	if username == "" && refreshToken == "" {
+		return Config{}, errors.New(
+			"STEAM_USER environment variable or -username flag is required when refresh token is missing",
+		)
 	}
 
 	if password == "" && refreshToken == "" {
