@@ -166,6 +166,77 @@ Open a separate terminal window and issue command sequences to the active daemon
   .\bin\gmanctl.exe stop
   ```
 
+## 🐳 Docker Deployment
+
+For easier deployment and process isolation, Dockerfiles are provided for both the daemon and the CLI client.
+
+### 1. Integrating with `docker-compose.yml`
+
+You can run the `g-mand` daemon alongside your other services. Example configuration:
+
+```yaml
+version: '3.8'
+
+services:
+  g-man:
+    image: gman-daemon:latest
+    container_name: g-mand
+    restart: always
+    build:
+      context: ./g-man-cli
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      - GMAN_IPC_NET=unix
+      - GMAN_IPC_ADDR=/var/run/gman/gman.sock
+    volumes:
+      - gman-socket:/var/run/gman
+      - ./config.json:/app/config.json
+      - ./storage.json:/app/storage.json
+      - ./cache:/app/cache
+    networks:
+      - mynetwork
+
+  g-man-ctl:
+    image: gmanctl:latest
+    build:
+      context: ./g-man-cli
+      dockerfile: cmd/gmanctl/Dockerfile
+    volumes:
+      - gman-socket:/var/run/gman
+    environment:
+      - GMAN_IPC_NET=unix
+      - GMAN_IPC_ADDR=/var/run/gman/gman.sock
+
+volumes:
+  gman-socket:
+    name: gman_volume
+```
+
+> [!IMPORTANT]
+> Before the first run, make sure to manually create empty configuration and storage files (or copy existing ones) on the host system, otherwise Docker will mount them as directories:
+> ```bash
+> touch ./config.json
+> echo "{}" > ./storage.json
+> ```
+
+### 2. Running & Administration via CLI
+
+* **Start the daemon:**
+  ```bash
+  docker compose up -d g-man
+  ```
+
+* **Execute CLI client (`gmanctl`) commands via transient containers:**
+  ```bash
+  # Query daemon status
+  docker compose run --rm g-man-ctl status
+  
+  # Launch interactive Bubble Tea TUI shell
+  docker compose run --rm g-man-ctl shell
+  ```
+
 ## ⚙️ Compilation & Development
 The project includes a unified automation pipeline via `Makefile`.
 
