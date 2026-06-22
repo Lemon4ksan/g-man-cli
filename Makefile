@@ -3,23 +3,27 @@ PKG=$(shell go list ./... | grep -v /vendor/)
 COVER_OUT?=coverage.out
 COVER_PKG?=$(PKG)
 
+# pprof variables
+PPROF_PORT?=6060
+PPROF_UI_PORT?=8080
+
 # Colors for console output
 CYAN  := \033[0;36m
 RESET := \033[0m
 
-.PHONY: all proto build test format clean help
+.PHONY: all proto build test format clean help pprof-cpu pprof-heap pprof-allocs pprof-goroutine
 
 all: build # Default target
 
-proto: # Generate protobuf and gRPC files from daemon.proto
+proto: # Generate protobuf and gRPC files from daemon.proto and paymaster.proto
 	cd proto && \
 	protoc --go_out=./daemon --go_opt=paths=source_relative \
 		--go-grpc_out=./daemon --go-grpc_opt=paths=source_relative \
 		daemon.proto
-		
+
 build: # Build both daemon and CLI client
-	go build -o bin/g-mand ./cmd/g-mand/
-	go build -o bin/gmanctl ./cmd/gmanctl/
+	go build -o bin/g-mand.exe ./cmd/g-mand
+	go build -o bin/gmanctl.exe ./cmd/gmanctl
 
 test: ## Run normal quick tests
 	@printf "$(CYAN)Running unit tests...$(RESET)\n"
@@ -49,8 +53,24 @@ clean: ## Delete temporary files and binaries
 	rm -f coverage.out
 
 format: ## Run go code formatting
-	addlicense -c "Lemon4ksan" -l bsd -ignore "proto/**" -ignore "tf2autobot/**" -ignore "**/*.yml" .
+	addlicense -c "Lemon4ksan" -l bsd -ignore "proto/**" -ignore "**/*.yml" -ignore "**/Dockerfile" .
 	golangci-lint run --fix
+
+pprof-cpu: ## Collect CPU profile (30s) and open web UI
+	@printf "$(CYAN)Collecting CPU profile for 30s and starting web UI on port $(PPROF_UI_PORT)...$(RESET)\n"
+	go tool pprof -http=:$(PPROF_UI_PORT) http://localhost:$(PPROF_PORT)/debug/pprof/profile
+
+pprof-heap: ## Collect Heap profile and open web UI
+	@printf "$(CYAN)Collecting Heap profile and starting web UI on port $(PPROF_UI_PORT)...$(RESET)\n"
+	go tool pprof -sample_index=alloc_space -http=:$(PPROF_UI_PORT) http://localhost:$(PPROF_PORT)/debug/pprof/heap
+
+pprof-allocs: ## Collect Allocs profile and open web UI
+	@printf "$(CYAN)Collecting Allocs profile and starting web UI on port $(PPROF_UI_PORT)...$(RESET)\n"
+	go tool pprof -http=:$(PPROF_UI_PORT) http://localhost:$(PPROF_PORT)/debug/pprof/allocs
+
+pprof-goroutine: ## Collect Goroutine profile and open web UI
+	@printf "$(CYAN)Collecting Goroutine profile and starting web UI on port $(PPROF_UI_PORT)...$(RESET)\n"
+	go tool pprof -http=:$(PPROF_UI_PORT) http://localhost:$(PPROF_PORT)/debug/pprof/goroutine
 
 help: ## Show this message
 	@printf "Usage: make [target]\n"

@@ -6,10 +6,15 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -21,6 +26,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/behavior"
 	"github.com/lemon4ksan/g-man/pkg/behavior/achievements"
 	"github.com/lemon4ksan/g-man/pkg/behavior/guard"
+	corecrypto "github.com/lemon4ksan/g-man/pkg/crypto"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
@@ -89,9 +95,25 @@ func NewDaemon(
 ) (*Daemon, error) {
 	clientCfg := steam.DefaultConfig()
 	clientCfg.Storage = store
+	clientCfg.PersonaState = enums.EPersonaState(cfg.PersonaState)
 
 	if err := setupProxyConfig(cfg, &clientCfg, logger); err != nil {
 		return nil, err
+	}
+
+	var logFields []log.Field
+	if cfg.Username != "" {
+		logFields = append(logFields, log.String("account", cfg.Username))
+	}
+
+	if cfg.RefreshToken != "" {
+		if id := auth.ExtractSteamIDFromJWT(cfg.RefreshToken); id != 0 {
+			logFields = append(logFields, log.SteamID(id.Uint64()))
+		}
+	}
+
+	if len(logFields) > 0 {
+		logger = logger.With(logFields...)
 	}
 
 	logger = logger.With(log.Module("daemon"))
@@ -134,7 +156,8 @@ func NewDaemon(
 	isLocked := gman_crypto.IsEncryptedString(cfg.Password) ||
 		gman_crypto.IsEncryptedString(cfg.RefreshToken) ||
 		gman_crypto.IsEncryptedString(cfg.SharedSecret) ||
-		gman_crypto.IsEncryptedString(cfg.IdentitySecret)
+		gman_crypto.IsEncryptedString(cfg.IdentitySecret) ||
+		cfg.MaFileEncrypted
 
 	d := &Daemon{
 		cfg:          cfg,
@@ -171,6 +194,109 @@ func (s *Daemon) Run(ctx context.Context) error {
 			}
 
 			s.logger.Info("Decrypting configuration variables...")
+
+			if s.cfg.MaFilePath != "" && s.cfg.MaFileEncrypted {
+				s.logger.Info("Decrypting maFile...", log.String("path", s.cfg.MaFilePath))
+
+				fileData, err := os.ReadFile(s.cfg.MaFilePath)
+				if err != nil {
+					req.resChan <- fmt.Errorf("failed to read maFile: %w", err)
+					continue
+				}
+
+				decrypted, err := gman_crypto.DecryptData(fileData, req.passphrase)
+				if err != nil {
+					req.resChan <- fmt.Errorf("failed to decrypt maFile: %w", err)
+					continue
+				}
+
+				type maFile struct {
+					SharedSecret   string `json:"shared_secret"`
+					IdentitySecret string `json:"identity_secret"`
+					DeviceID       string `json:"device_id"`
+					AccountName    string `json:"account_name"`
+					SteamID        string `json:"steam_id"`
+					Tokens         struct {
+						RefreshToken string `json:"refresh_token"`
+					} `json:"tokens"`
+					Session struct {
+						SteamID string `json:"SteamID"`
+					} `json:"Session"`
+				}
+
+				var ma maFile
+				if err := json.Unmarshal(decrypted, &ma); err != nil {
+					req.resChan <- fmt.Errorf("failed to parse decrypted maFile JSON: %w", err)
+					continue
+				}
+
+				if ma.SharedSecret == "" || ma.IdentitySecret == "" {
+					req.resChan <- errors.New("invalid maFile: missing shared_secret or identity_secret")
+					continue
+				}
+
+				steamID := ma.SteamID
+				if steamID == "" {
+					steamID = ma.Session.SteamID
+				}
+
+				var devID string
+				if ma.DeviceID != "" {
+					devID = ma.DeviceID
+				} else if steamID != "" {
+					if id, err := strconv.ParseUint(steamID, 10, 64); err == nil && id > 0 {
+						devID = corecrypto.GetDeviceID(id)
+					}
+				}
+
+				if devID == "" {
+					var r [16]byte
+
+					_, _ = rand.Read(r[:])
+					sum := hex.EncodeToString(r[:])
+					devID = fmt.Sprintf("android:%s-%s-%s-%s-%s",
+						sum[:8], sum[8:12], sum[12:16], sum[16:20], sum[20:32],
+					)
+				}
+
+				s.mu.Lock()
+				s.cfg.SharedSecret = ma.SharedSecret
+				s.cfg.IdentitySecret = ma.IdentitySecret
+
+				s.cfg.DeviceID = devID
+				if ma.AccountName != "" && s.cfg.Username == "" {
+					s.cfg.Username = ma.AccountName
+				}
+
+				if ma.Tokens.RefreshToken != "" && s.cfg.RefreshToken == "" {
+					s.cfg.RefreshToken = ma.Tokens.RefreshToken
+				}
+
+				s.isLocked = false
+				s.mu.Unlock()
+
+				if err := s.configureGuardian(
+					ma.SharedSecret,
+					ma.IdentitySecret,
+					devID,
+					s.cfg.Username,
+					s.cfg.RefreshToken,
+				); err != nil {
+					req.resChan <- err
+
+					s.mu.Lock()
+					s.isLocked = true
+					s.mu.Unlock()
+
+					continue
+				}
+
+				s.logger.Info("Configuration successfully loaded from encrypted maFile and guardian configured!")
+
+				req.resChan <- nil
+
+				continue
+			}
 
 			decrypt := func(val string) (string, error) {
 				if gman_crypto.IsEncryptedString(val) {
@@ -269,17 +395,28 @@ func (s *Daemon) Run(ctx context.Context) error {
 		s.handleEvents(ctx)
 	})
 
+	username := s.cfg.Username
+	if username == "" && s.cfg.RefreshToken != "" {
+		if id := auth.ExtractSteamIDFromJWT(s.cfg.RefreshToken); id != 0 {
+			username = strconv.FormatUint(id.Uint64(), 10)
+		}
+	}
+
 	s.logger.Info("Connecting and authenticating with Steam...",
-		log.String("username", s.cfg.Username),
+		log.String("username", username),
 	)
 
 	details := &auth.LogOnDetails{
-		AccountName:  s.cfg.Username,
+		AccountName:  username,
 		Password:     s.cfg.Password,
 		RefreshToken: s.cfg.RefreshToken,
 	}
 	if err := s.client.ConnectAndLogin(ctx, server, details); err != nil {
 		return fmt.Errorf("connect and login failed: %w", err)
+	}
+
+	if steamID := s.client.SteamID(); steamID != 0 {
+		s.logger = s.logger.With(log.SteamID(steamID.Uint64()))
 	}
 
 	s.logger.Info("Bot logged in and fully operational")

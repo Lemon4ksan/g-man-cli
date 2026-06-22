@@ -113,6 +113,7 @@ func setupProxyConfig(cfg Config, clientCfg *steam.Config, logger log.Logger) er
 	restClient := aoni.NewClient(chainedDoer).
 		WithTLSFingerprint(aoni.BrowserChrome).
 		WithUserAgent(chrome.UserAgentWindows).
+		WithMaxResponseSize(100 * 1024 * 1024).
 		WithConnectionPool(aoni.ConnectionPoolConfig{
 			MaxIdleConns:          100,
 			MaxIdleConnsPerHost:   10,

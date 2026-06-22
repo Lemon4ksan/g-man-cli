@@ -5,11 +5,21 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"github.com/lemon4ksan/g-man/pkg/crypto"
+
+	guardcrypto "github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 )
 
 var (
@@ -30,6 +40,7 @@ var (
 	flagDoTEndpoint        string
 	flagDoTHost            string
 	flagCircuitBreaker     bool
+	flagMaFilePath         string
 )
 
 func init() {
@@ -57,6 +68,7 @@ func init() {
 	flag.StringVar(&flagDoTEndpoint, "dot-endpoint", "", "DNS-over-TLS resolver endpoint (e.g. 1.1.1.1:853)")
 	flag.StringVar(&flagDoTHost, "dot-host", "", "DNS-over-TLS TLS SNI hostname (e.g. cloudflare-dns.com)")
 	flag.BoolVar(&flagCircuitBreaker, "circuit-breaker", false, "Enable circuit breaker middleware for REST API")
+	flag.StringVar(&flagMaFilePath, "mafile", "", "Path to SDA .maFile")
 }
 
 // Config holds the configuration loaded from environment variables.
@@ -78,6 +90,9 @@ type Config struct {
 	DoTEndpoint           string
 	DoTHost               string
 	CircuitBreakerEnabled bool
+	MaFilePath            string
+	MaFileEncrypted       bool
+	PersonaState          int32
 }
 
 func loadEnvConfig() (Config, error) {
@@ -96,18 +111,6 @@ func loadEnvConfig() (Config, error) {
 		refreshToken = flagRefreshToken
 	}
 
-	if username == "" && refreshToken == "" {
-		return Config{}, errors.New(
-			"STEAM_USER environment variable or -username flag is required when refresh token is missing",
-		)
-	}
-
-	if password == "" && refreshToken == "" {
-		return Config{}, errors.New(
-			"either STEAM_PASS/STEAM_REFRESH_TOKEN env or -password/-refresh-token flag is required",
-		)
-	}
-
 	sharedSecret := os.Getenv("STEAM_SHARED_SECRET")
 	if flagSharedSecret != "" {
 		sharedSecret = flagSharedSecret
@@ -121,6 +124,74 @@ func loadEnvConfig() (Config, error) {
 	deviceID := os.Getenv("STEAM_DEVICE_ID")
 	if flagDeviceID != "" {
 		deviceID = flagDeviceID
+	}
+
+	mafilePath := os.Getenv("STEAM_MAFILE_PATH")
+	if flagMaFilePath != "" {
+		mafilePath = flagMaFilePath
+	}
+
+	var maFileEncrypted bool
+	if mafilePath != "" {
+		fileData, err := os.ReadFile(mafilePath)
+		if err != nil {
+			return Config{}, fmt.Errorf("failed to read maFile from path %q: %w", mafilePath, err)
+		}
+
+		if len(fileData) >= 8 && string(fileData[:8]) == guardcrypto.CryptoMagic {
+			maFileEncrypted = true
+		} else {
+			var ma maFileData
+			if err := json.Unmarshal(fileData, &ma); err != nil {
+				return Config{}, fmt.Errorf("failed to parse maFile JSON from %q: %w", mafilePath, err)
+			}
+
+			if ma.SharedSecret == "" || ma.IdentitySecret == "" {
+				return Config{}, fmt.Errorf(
+					"invalid maFile at %q: missing shared_secret or identity_secret",
+					mafilePath,
+				)
+			}
+
+			if username == "" {
+				username = ma.AccountName
+			}
+
+			if sharedSecret == "" {
+				sharedSecret = ma.SharedSecret
+			}
+
+			if identitySecret == "" {
+				identitySecret = ma.IdentitySecret
+			}
+
+			if refreshToken == "" {
+				refreshToken = ma.Tokens.RefreshToken
+			}
+
+			if deviceID == "" {
+				steamID := ma.SteamID
+				if steamID == "" {
+					steamID = ma.Session.SteamID
+				}
+
+				deviceID = getOrGenerateDeviceID(ma.DeviceID, steamID, refreshToken)
+			}
+		}
+	}
+
+	if !maFileEncrypted {
+		if username == "" && refreshToken == "" {
+			return Config{}, errors.New(
+				"STEAM_USER environment variable or -username flag is required when refresh token is missing",
+			)
+		}
+
+		if password == "" && refreshToken == "" {
+			return Config{}, errors.New(
+				"either STEAM_PASS/STEAM_REFRESH_TOKEN env or -password/-refresh-token flag is required",
+			)
+		}
 	}
 
 	storagePath := getEnvOr("STEAM_STORAGE_PATH", "storage.json")
@@ -203,6 +274,34 @@ func loadEnvConfig() (Config, error) {
 		circuitBreaker = true
 	}
 
+	personaStateStr := getEnvOr("STEAM_PERSONA_STATE", "1")
+
+	var personaState int32
+	if val, err := strconv.ParseInt(personaStateStr, 10, 32); err == nil {
+		personaState = int32(val)
+	} else {
+		switch strings.ToLower(personaStateStr) {
+		case "offline":
+			personaState = 0
+		case "online":
+			personaState = 1
+		case "busy":
+			personaState = 2
+		case "away":
+			personaState = 3
+		case "snooze":
+			personaState = 4
+		case "looking_to_trade", "trade":
+			personaState = 5
+		case "looking_to_play", "play":
+			personaState = 6
+		case "invisible":
+			personaState = 7
+		default:
+			personaState = 1
+		}
+	}
+
 	return Config{
 		Username:              username,
 		Password:              password,
@@ -221,6 +320,9 @@ func loadEnvConfig() (Config, error) {
 		DoTEndpoint:           doTEndpoint,
 		DoTHost:               doTHost,
 		CircuitBreakerEnabled: circuitBreaker,
+		MaFilePath:            mafilePath,
+		MaFileEncrypted:       maFileEncrypted,
+		PersonaState:          personaState,
 	}, nil
 }
 
@@ -240,4 +342,78 @@ func getEnvOr(key, fallback string) string {
 	}
 
 	return fallback
+}
+
+type maFileData struct {
+	SharedSecret   string `json:"shared_secret"`
+	IdentitySecret string `json:"identity_secret"`
+	DeviceID       string `json:"device_id"`
+	AccountName    string `json:"account_name"`
+	SteamID        string `json:"steam_id"`
+	Tokens         struct {
+		RefreshToken string `json:"refresh_token"`
+	} `json:"tokens"`
+	Session struct {
+		SteamID string `json:"SteamID"`
+	} `json:"Session"`
+}
+
+func getOrGenerateDeviceID(deviceID, steamIDStr, refreshToken string) string {
+	if deviceID != "" {
+		return deviceID
+	}
+
+	var steamID uint64
+
+	// Try Session.SteamID first
+	if steamIDStr != "" {
+		if id, err := strconv.ParseUint(steamIDStr, 10, 64); err == nil && id > 0 {
+			steamID = id
+		}
+	}
+
+	// Try RefreshToken if SteamID is still empty
+	if steamID == 0 && refreshToken != "" {
+		parts := strings.Split(refreshToken, ".")
+		if len(parts) == 3 {
+			payloadStr := parts[1]
+			if pad := len(payloadStr) % 4; pad != 0 {
+				payloadStr += strings.Repeat("=", 4-pad)
+			}
+
+			payload, err := base64.URLEncoding.DecodeString(payloadStr)
+			if err != nil {
+				payload, _ = base64.RawURLEncoding.DecodeString(parts[1])
+			}
+
+			if len(payload) > 0 {
+				var claims struct {
+					Sub string `json:"sub"`
+				}
+				if err := json.Unmarshal(payload, &claims); err == nil {
+					if id, err := strconv.ParseUint(claims.Sub, 10, 64); err == nil {
+						steamID = id
+					}
+				}
+			}
+		}
+	}
+
+	if steamID > 0 {
+		return crypto.GetDeviceID(steamID)
+	}
+
+	// Fallback to a random device ID if we cannot find the SteamID
+	var r [16]byte
+
+	_, _ = rand.Read(r[:])
+	sum := hex.EncodeToString(r[:])
+
+	return fmt.Sprintf("android:%s-%s-%s-%s-%s",
+		sum[:8],
+		sum[8:12],
+		sum[12:16],
+		sum[16:20],
+		sum[20:32],
+	)
 }
