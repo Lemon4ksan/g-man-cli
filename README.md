@@ -175,67 +175,60 @@ For easier deployment and process isolation, Dockerfiles are provided for both t
 You can run the `g-mand` daemon alongside your other services. Example configuration:
 
 ```yaml
-version: '3.8'
-
 services:
   g-man:
-    image: gman-daemon:latest
+    build:
+      context: .
+      dockerfile: cmd/g-mand/Dockerfile
     container_name: g-mand
-    restart: always
-    build:
-      context: ./g-man-cli
-      dockerfile: Dockerfile
-    env_file:
-      - .env
+    restart: unless-stopped
     environment:
-      - GMAN_IPC_NET=unix
-      - GMAN_IPC_ADDR=/var/run/gman/gman.sock
+      - GMAN_CONTAINER=true
+      - STEAM_USER=${STEAM_USER}
+      - STEAM_PASS=${STEAM_PASS}
+      - STEAM_REFRESH_TOKEN=${STEAM_REFRESH_TOKEN}
     volumes:
-      - gman-socket:/var/run/gman
-      - ./config.json:/app/config.json
-      - ./storage.json:/app/storage.json
-      - ./cache:/app/cache
-    networks:
-      - mynetwork
+      - gman-data:/app/data
 
-  g-man-ctl:
-    image: gmanctl:latest
+  gmanctl:
     build:
-      context: ./g-man-cli
+      context: .
       dockerfile: cmd/gmanctl/Dockerfile
-    volumes:
-      - gman-socket:/var/run/gman
+    container_name: g-man-ctl
+    entrypoint: ["tail", "-f", "/dev/null"]
     environment:
-      - GMAN_IPC_NET=unix
-      - GMAN_IPC_ADDR=/var/run/gman/gman.sock
+      - GMAN_CONTAINER=true
+      - GMAN_IPC_ADDR=/app/data/gman.sock
+    volumes:
+      - gman-data:/app/data
+    depends_on:
+      - g-man
+    # Run commands: docker compose exec g-man-ctl ./gmanctl status
 
 volumes:
-  gman-socket:
-    name: gman_volume
+  gman-data:
 ```
 
 > [!IMPORTANT]
-> Before the first run, make sure to manually create empty configuration and storage files (or copy existing ones) on the host system, otherwise Docker will mount them as directories:
+> Create a `.env` file with your Steam credentials before running:
 > ```bash
-> touch ./config.json
-> echo "{}" > ./storage.json
+> STEAM_USER=your_username
+> STEAM_PASS=your_password
+> STEAM_REFRESH_TOKEN=your_token
 > ```
 
 ### 2. Running & Administration via CLI
 
-* **Start the daemon:**
-  ```bash
-  docker compose up -d g-man
-  ```
+```bash
+# Start daemon
+docker compose up -d g-man
 
-* **Execute CLI client (`gmanctl`) commands via transient containers:**
-  ```bash
-  # Query daemon status
-  docker compose run --rm g-man-ctl status
-  
-  # Launch interactive Bubble Tea TUI shell
-  docker compose run --rm g-man-ctl shell
-  ```
+# Check status
+docker compose run --rm gmanctl status
+
+# Stop daemon
+docker compose run --rm gmanctl stop
+```
 
 ## ⚙️ Compilation & Development
 The project includes a unified automation pipeline via `Makefile`.

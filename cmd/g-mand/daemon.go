@@ -615,6 +615,8 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 		IsCommunityBanned: isCommunityBanned,
 		VacBansCount:      vacBansCount,
 		EmailAddress:      emailAddress,
+		TrustedIds:        s.cfg.TrustedIDs,
+		ExcludedIds:       s.cfg.ExcludedIDs,
 	}, nil
 }
 

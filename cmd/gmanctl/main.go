@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lemon4ksan/miyako/generic"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -299,6 +300,11 @@ func GetIPCConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	netType := os.Getenv("GMAN_IPC_NET")
 	addr := os.Getenv("GMAN_IPC_ADDR")
 
+	if os.Getenv("GMAN_CONTAINER") == "true" {
+		netType = "unix"
+		addr = generic.Coalesce(addr, "/tmp/gman.sock")
+	}
+
 	if netType == "" {
 		if runtime.GOOS == "windows" {
 			netType = "tcp"
@@ -317,7 +323,12 @@ func GetIPCConnection(ctx context.Context) (*grpc.ClientConn, error) {
 		}
 	}
 
-	conn, err := grpc.NewClient(addr,
+	target := addr
+	if netType == "unix" && !strings.HasPrefix(target, "unix:") && !strings.HasPrefix(target, "passthrough:") {
+		target = "passthrough:///" + target
+	}
+
+	conn, err := grpc.NewClient(target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithContextDialer(func(ctx context.Context, target string) (net.Conn, error) {
 			var d net.Dialer

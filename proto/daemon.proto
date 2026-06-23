@@ -55,6 +55,8 @@ message GetStatusResponse {
   bool is_community_banned = 13;
   uint32 vac_bans_count = 14;
   string email_address = 15;
+  repeated string trusted_ids = 16;
+  repeated string excluded_ids = 17;
 }
 
 message StopDaemonRequest {}

@@ -175,67 +175,60 @@ $env:STEAM_PASS="ваш_пароль_steam"
 Вы можете запускать демон `g-mand` в связке с другими вашими сервисами. Пример конфигурации:
 
 ```yaml
-version: '3.8'
-
 services:
   g-man:
-    image: gman-daemon:latest
+    build:
+      context: .
+      dockerfile: cmd/g-mand/Dockerfile
     container_name: g-mand
-    restart: always
-    build:
-      context: ./g-man-cli
-      dockerfile: Dockerfile
-    env_file:
-      - .env
+    restart: unless-stopped
     environment:
-      - GMAN_IPC_NET=unix
-      - GMAN_IPC_ADDR=/var/run/gman/gman.sock
+      - GMAN_CONTAINER=true
+      - STEAM_USER=${STEAM_USER}
+      - STEAM_PASS=${STEAM_PASS}
+      - STEAM_REFRESH_TOKEN=${STEAM_REFRESH_TOKEN}
     volumes:
-      - gman-socket:/var/run/gman
-      - ./config.json:/app/config.json
-      - ./storage.json:/app/storage.json
-      - ./cache:/app/cache
-    networks:
-      - mynetwork
+      - gman-data:/app/data
 
-  g-man-ctl:
-    image: gmanctl:latest
+  gmanctl:
     build:
-      context: ./g-man-cli
+      context: .
       dockerfile: cmd/gmanctl/Dockerfile
-    volumes:
-      - gman-socket:/var/run/gman
+    container_name: g-man-ctl
+    entrypoint: ["tail", "-f", "/dev/null"]
     environment:
-      - GMAN_IPC_NET=unix
-      - GMAN_IPC_ADDR=/var/run/gman/gman.sock
+      - GMAN_CONTAINER=true
+      - GMAN_IPC_ADDR=/app/data/gman.sock
+    volumes:
+      - gman-data:/app/data
+    depends_on:
+      - g-man
+    # Выполнить команду: docker compose exec g-man-ctl ./gmanctl status
 
 volumes:
-  gman-socket:
-    name: gman_volume
+  gman-data:
 ```
 
 > [!IMPORTANT]
-> На хост-системе перед первым запуском необходимо вручную создать пустые файлы конфигурации и хранилища (или скопировать существующие), иначе Docker автоматически создаст папки с такими именами:
+> Создайте `.env` файл с вашими учетными данными Steam перед запуском:
 > ```bash
-> touch ./config.json
-> echo "{}" > ./storage.json
+> STEAM_USER=your_username
+> STEAM_PASS=your_password
+> STEAM_REFRESH_TOKEN=your_token
 > ```
 
 ### 2. Запуск и модерирование через CLI
 
-* **Запуск демона:**
-  ```bash
-  docker compose up -d g-man
-  ```
+```bash
+# Start daemon
+docker compose up -d g-man
 
-* **Использование CLI-клиента (`gmanctl`) через временный контейнер:**
-  ```bash
-  # Проверить статус демона
-  docker compose run --rm g-man-ctl status
-  
-  # Запустить интерактивную Bubble Tea консоль
-  docker compose run --rm g-man-ctl shell
-  ```
+# Check status
+docker compose run --rm gmanctl status
+
+# Stop daemon
+docker compose run --rm gmanctl stop
+```
 
 ## ⚙️ Компиляция и разработка
 Вся автоматизация рутинных процессов разработки описана в едином `Makefile`.

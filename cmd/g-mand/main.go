@@ -29,7 +29,7 @@ func main() {
 }
 
 func run() error {
-	_ = godotenv.Load()
+	_ = godotenv.Load(getEnvPath())
 
 	var exitCode int
 	defer func() {
@@ -137,4 +137,12 @@ func run() error {
 	logger.Info("Daemon process exited.")
 
 	return nil
+}
+
+func getEnvPath() string {
+	if path := os.Getenv("GMAN_ENV_PATH"); path != "" {
+		return path
+	}
+
+	return ".env"
 }

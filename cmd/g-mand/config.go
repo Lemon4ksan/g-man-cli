@@ -33,6 +33,7 @@ var (
 	flagPricesPath         string
 	flagSocketPath         string
 	flagTrustedIDs         string
+	flagExcludedIDs        string
 	flagProxyCM            string
 	flagProxiesWeb         string
 	flagRestLogs           bool
@@ -56,6 +57,7 @@ func init() {
 	flag.StringVar(&flagPricesPath, "prices", "", "Path to manual_prices.json")
 	flag.StringVar(&flagSocketPath, "socket", "", "Path to IPC socket")
 	flag.StringVar(&flagTrustedIDs, "trusted-ids", "", "Comma-separated list of trusted Steam IDs")
+	flag.StringVar(&flagExcludedIDs, "excluded-ids", "", "Comma-separated list of excluded Steam IDs to auto-decline")
 	flag.StringVar(&flagProxyCM, "proxy-cm", "", "Proxy URL for Connection Manager (CM) socket (SOCKS5/HTTP)")
 	flag.StringVar(&flagProxiesWeb, "proxies-web", "", "Comma-separated list of proxy URLs for web API requests")
 	flag.BoolVar(&flagRestLogs, "enable-rest-logs", false, "Enable REST API request logging middleware")
@@ -83,6 +85,7 @@ type Config struct {
 	ManualPricesPath      string
 	SocketPath            string
 	TrustedIDs            []string
+	ExcludedIDs           []string
 	ProxyCM               string
 	ProxiesWeb            []string
 	RestLogs              bool
@@ -213,6 +216,10 @@ func loadEnvConfig() (Config, error) {
 		socketPath = flagSocketPath
 	}
 
+	if os.Getenv("GMAN_CONTAINER") == "true" {
+		socketPath = getEnvOr("GMAN_SOCKET_PATH", "/tmp/gman.sock")
+	}
+
 	trustedIDsStr := getEnvOr("STEAM_TRUSTED_IDS", "")
 	if flagTrustedIDs != "" {
 		trustedIDsStr = flagTrustedIDs
@@ -224,6 +231,21 @@ func loadEnvConfig() (Config, error) {
 			s = strings.TrimSpace(s)
 			if s != "" {
 				trustedIDs = append(trustedIDs, s)
+			}
+		}
+	}
+
+	excludedIDsStr := getEnvOr("STEAM_EXCLUDED_IDS", "")
+	if flagExcludedIDs != "" {
+		excludedIDsStr = flagExcludedIDs
+	}
+
+	var excludedIDs []string
+	if excludedIDsStr != "" {
+		for s := range strings.SplitSeq(excludedIDsStr, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				excludedIDs = append(excludedIDs, s)
 			}
 		}
 	}
@@ -313,6 +335,7 @@ func loadEnvConfig() (Config, error) {
 		ManualPricesPath:      pricesPath,
 		SocketPath:            socketPath,
 		TrustedIDs:            trustedIDs,
+		ExcludedIDs:           excludedIDs,
 		ProxyCM:               proxyCM,
 		ProxiesWeb:            proxiesWeb,
 		RestLogs:              restLogs,

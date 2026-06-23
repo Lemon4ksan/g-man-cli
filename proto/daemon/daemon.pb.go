@@ -214,6 +214,8 @@ type GetStatusResponse struct {
 	IsCommunityBanned bool                   `protobuf:"varint,13,opt,name=is_community_banned,json=isCommunityBanned,proto3" json:"is_community_banned,omitempty"`
 	VacBansCount      uint32                 `protobuf:"varint,14,opt,name=vac_bans_count,json=vacBansCount,proto3" json:"vac_bans_count,omitempty"`
 	EmailAddress      string                 `protobuf:"bytes,15,opt,name=email_address,json=emailAddress,proto3" json:"email_address,omitempty"`
+	TrustedIds        []string               `protobuf:"bytes,16,rep,name=trusted_ids,json=trustedIds,proto3" json:"trusted_ids,omitempty"`
+	ExcludedIds       []string               `protobuf:"bytes,17,rep,name=excluded_ids,json=excludedIds,proto3" json:"excluded_ids,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -351,6 +353,20 @@ func (x *GetStatusResponse) GetEmailAddress() string {
 		return x.EmailAddress
 	}
 	return ""
+}
+
+func (x *GetStatusResponse) GetTrustedIds() []string {
+	if x != nil {
+		return x.TrustedIds
+	}
+	return nil
+}
+
+func (x *GetStatusResponse) GetExcludedIds() []string {
+	if x != nil {
+		return x.ExcludedIds
+	}
+	return nil
 }
 
 type StopDaemonRequest struct {
@@ -2678,7 +2694,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x12FreeMemoryResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12!\n" +
 	"\fmemory_bytes\x18\x02 \x01(\x04R\vmemoryBytes\"\x12\n" +
-	"\x10GetStatusRequest\"\x9a\x04\n" +
+	"\x10GetStatusRequest\"\xde\x04\n" +
 	"\x11GetStatusResponse\x12\x1c\n" +
 	"\tconnected\x18\x01 \x01(\bR\tconnected\x12\x19\n" +
 	"\bsteam_id\x18\x02 \x01(\tR\asteamId\x12#\n" +
@@ -2697,7 +2713,10 @@ const file_daemon_proto_rawDesc = "" +
 	"is_limited\x18\f \x01(\bR\tisLimited\x12.\n" +
 	"\x13is_community_banned\x18\r \x01(\bR\x11isCommunityBanned\x12$\n" +
 	"\x0evac_bans_count\x18\x0e \x01(\rR\fvacBansCount\x12#\n" +
-	"\remail_address\x18\x0f \x01(\tR\femailAddress\"\x13\n" +
+	"\remail_address\x18\x0f \x01(\tR\femailAddress\x12\x1f\n" +
+	"\vtrusted_ids\x18\x10 \x03(\tR\n" +
+	"trustedIds\x12!\n" +
+	"\fexcluded_ids\x18\x11 \x03(\tR\vexcludedIds\"\x13\n" +
 	"\x11StopDaemonRequest\".\n" +
 	"\x12StopDaemonResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"'\n" +
