@@ -19,8 +19,12 @@ type Driver interface {
 	// OnStopGC is called when the game session is terminated.
 	OnStopGC(ctx context.Context) error
 
-	// InventoryProvider returns the general inventory provider for this game.
-	InventoryProvider() InventoryProvider
+	// ExecuteAction runs a game-specific inventory manipulation command.
+	// For example: "sort-backpack", "craft-metal", "delete-item".
+	ExecuteAction(ctx context.Context, action string, params map[string]string) (string, error)
+
+	// Actions returns a list of supported action descriptions for the driver.
+	Actions() []ActionInfo
 }
 
 // Item represents a generic item in the game's inventory.
@@ -40,13 +44,6 @@ type Item struct {
 type InventoryProvider interface {
 	// GetInventory returns the list of all items currently in the user's backpack.
 	GetInventory(ctx context.Context) ([]Item, error)
-
-	// ExecuteAction runs a game-specific inventory manipulation command.
-	// For example: "sort-backpack", "craft-metal", "delete-item".
-	ExecuteAction(ctx context.Context, action string, params map[string]string) (string, error)
-
-	// Actions returns a list of supported action descriptions for the driver.
-	Actions() []ActionInfo
 }
 
 // ActionParam describes a parameter for an inventory action.

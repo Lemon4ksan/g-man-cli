@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/lemon4ksan/g-man/pkg/log"
@@ -16,33 +17,35 @@ import (
 )
 
 // PlayGame launches a game session on Steam.
-func (s *Daemon) PlayGame(ctx context.Context, req *pb.PlayGameRequest) (*pb.PlayGameResponse, error) {
-	s.logger.Info("Play game request", log.Uint32("appid", req.GetAppid()))
+func (d *Daemon) PlayGame(ctx context.Context, req *pb.PlayGameRequest) (*pb.PlayGameResponse, error) {
+	d.logger.Info("Play game request", log.Uint32("appid", req.GetAppid()))
 
-	s.mu.Lock()
-	oldApp := s.currentAppID
-	s.currentAppID = req.GetAppid()
-	s.mu.Unlock()
+	d.mu.Lock()
+	oldApp := d.currentAppID
+	d.currentAppID = req.GetAppid()
+	d.desiredAppID = req.GetAppid()
+	d.mu.Unlock()
 
 	if oldApp != 0 && oldApp != req.GetAppid() {
-		if oldDriver, ok := s.registry.Get(oldApp); ok {
+		if oldDriver, ok := d.registry.Get(oldApp); ok {
 			_ = oldDriver.OnStopGC(ctx)
 		}
 	}
 
-	if err := s.apps.PlayGames(ctx, []uint32{req.GetAppid()}, true); err != nil {
-		s.mu.Lock()
-		s.currentAppID = oldApp
-		s.mu.Unlock()
+	if err := d.apps.PlayGames(ctx, []uint32{req.GetAppid()}, true); err != nil {
+		d.mu.Lock()
+		d.currentAppID = oldApp
+		d.desiredAppID = oldApp
+		d.mu.Unlock()
 
 		return nil, fmt.Errorf("failed to play game: %w", err)
 	}
 
-	if driver, ok := s.registry.Get(req.GetAppid()); ok {
-		s.logger.Info("Initializing game coordinator session", log.Uint32("appid", req.GetAppid()))
+	if driver, ok := d.registry.Get(req.GetAppid()); ok {
+		d.logger.Info("Initializing game coordinator session", log.Uint32("appid", req.GetAppid()))
 
 		if err := driver.OnStartGC(ctx); err != nil {
-			s.logger.Error("GC startup failed on driver", log.Uint32("appid", req.GetAppid()), log.Err(err))
+			d.logger.Error("GC startup failed on driver", log.Uint32("appid", req.GetAppid()), log.Err(err))
 		}
 	}
 
@@ -52,11 +55,12 @@ func (s *Daemon) PlayGame(ctx context.Context, req *pb.PlayGameRequest) (*pb.Pla
 }
 
 // ExitGame stops playing the current game and returns the bot to simple online mode.
-func (s *Daemon) ExitGame(ctx context.Context, req *pb.ExitGameRequest) (*pb.ExitGameResponse, error) {
-	s.mu.Lock()
-	currentApp := s.currentAppID
-	s.currentAppID = 0
-	s.mu.Unlock()
+func (d *Daemon) ExitGame(ctx context.Context, req *pb.ExitGameRequest) (*pb.ExitGameResponse, error) {
+	d.mu.Lock()
+	currentApp := d.currentAppID
+	d.currentAppID = 0
+	d.desiredAppID = 0
+	d.mu.Unlock()
 
 	if currentApp == 0 {
 		return &pb.ExitGameResponse{
@@ -64,17 +68,17 @@ func (s *Daemon) ExitGame(ctx context.Context, req *pb.ExitGameRequest) (*pb.Exi
 		}, nil
 	}
 
-	s.logger.Info("Exit game request", log.Uint32("appid", currentApp))
+	d.logger.Info("Exit game request", log.Uint32("appid", currentApp))
 
-	if driver, ok := s.registry.Get(currentApp); ok {
-		s.logger.Info("Stopping game coordinator session", log.Uint32("appid", currentApp))
+	if driver, ok := d.registry.Get(currentApp); ok {
+		d.logger.Info("Stopping game coordinator session", log.Uint32("appid", currentApp))
 
 		if err := driver.OnStopGC(ctx); err != nil {
-			s.logger.Error("GC shutdown failed on driver", log.Uint32("appid", currentApp), log.Err(err))
+			d.logger.Error("GC shutdown failed on driver", log.Uint32("appid", currentApp), log.Err(err))
 		}
 	}
 
-	if err := s.apps.StopPlaying(ctx); err != nil {
+	if err := d.apps.StopPlaying(ctx); err != nil {
 		return nil, fmt.Errorf("failed to stop playing game: %w", err)
 	}
 
@@ -84,14 +88,14 @@ func (s *Daemon) ExitGame(ctx context.Context, req *pb.ExitGameRequest) (*pb.Exi
 }
 
 // ExecAction routes dynamic commands to the active game driver.
-func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb.ExecActionResponse, error) {
-	s.logger.Info("Exec action request",
+func (d *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb.ExecActionResponse, error) {
+	d.logger.Info("Exec action request",
 		log.Uint32("appid", req.GetAppid()),
 		log.String("action", req.GetAction()),
 	)
 
 	if req.GetAction() == "memprofile" {
-		profile := s.generateMemoryProfile()
+		profile := d.generateMemoryProfile()
 
 		return &pb.ExecActionResponse{
 			Message: "Memory profile generated successfully.",
@@ -99,13 +103,13 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 		}, nil
 	}
 
-	driver, ok := s.registry.Get(req.GetAppid())
+	driver, ok := d.registry.Get(req.GetAppid())
 	if !ok {
 		return nil, fmt.Errorf("no game driver registered for appid %d", req.GetAppid())
 	}
 
 	if req.GetAction() == "list-actions" {
-		actions := driver.InventoryProvider().Actions()
+		actions := driver.Actions()
 
 		data, err := json.Marshal(actions)
 		if err != nil {
@@ -118,9 +122,9 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 		}, nil
 	}
 
-	s.mu.RLock()
-	currentApp := s.currentAppID
-	s.mu.RUnlock()
+	d.mu.RLock()
+	currentApp := d.currentAppID
+	d.mu.RUnlock()
 
 	if currentApp != req.GetAppid() {
 		return nil, fmt.Errorf(
@@ -131,23 +135,28 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 	}
 
 	if req.GetAction() == "inventory" {
-		driver, ok := s.registry.Get(req.GetAppid())
+		driver, ok := d.registry.Get(req.GetAppid())
 		if !ok {
 			return nil, fmt.Errorf("no game driver registered for appid %d", req.GetAppid())
 		}
 
-		items, err := driver.InventoryProvider().GetInventory(ctx)
+		provider, ok := driver.(game.InventoryProvider)
+		if !ok {
+			return nil, errors.New("driver does not implement inventory provider")
+		}
+
+		items, err := provider.GetInventory(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get inventory from driver: %w", err)
 		}
 
 		return &pb.ExecActionResponse{
 			Message: "Inventory fetched successfully",
-			Items:   s.toProtoItems(items),
+			Items:   d.toProtoItems(items),
 		}, nil
 	}
 
-	details, err := driver.InventoryProvider().ExecuteAction(ctx, req.GetAction(), req.GetParams())
+	details, err := driver.ExecuteAction(ctx, req.GetAction(), req.GetParams())
 	if err != nil {
 		return nil, fmt.Errorf("action execution failed: %w", err)
 	}
@@ -178,7 +187,7 @@ func (s *Daemon) ExecAction(ctx context.Context, req *pb.ExecActionRequest) (*pb
 	}, nil
 }
 
-func (s *Daemon) toProtoItems(items []game.Item) []*pb.Item {
+func (d *Daemon) toProtoItems(items []game.Item) []*pb.Item {
 	pbItems := make([]*pb.Item, len(items))
 	for i, gi := range items {
 		pbItems[i] = &pb.Item{

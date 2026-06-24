@@ -74,6 +74,7 @@ type Daemon struct {
 
 	mu           sync.RWMutex
 	currentAppID uint32
+	desiredAppID uint32
 	uptimeStart  time.Time
 	shutdownCtx  context.Context
 	shutdownFunc context.CancelFunc
@@ -180,25 +181,25 @@ func NewDaemon(
 }
 
 // Run starts the daemon and runs the core client services.
-func (s *Daemon) Run(ctx context.Context) error {
-	if s.isLocked {
-		s.logger.Info("Daemon configuration is ENCRYPTED. Waiting for gmanctl guard unlock...")
+func (d *Daemon) Run(ctx context.Context) error {
+	if d.isLocked {
+		d.logger.Info("Daemon configuration is ENCRYPTED. Waiting for gmanctl guard unlock...")
 
-		for s.isLocked {
+		for d.isLocked {
 			var req unlockRequest
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case r := <-s.unlockChan:
+			case r := <-d.unlockChan:
 				req = r
 			}
 
-			s.logger.Info("Decrypting configuration variables...")
+			d.logger.Info("Decrypting configuration variables...")
 
-			if s.cfg.MaFilePath != "" && s.cfg.MaFileEncrypted {
-				s.logger.Info("Decrypting maFile...", log.String("path", s.cfg.MaFilePath))
+			if d.cfg.MaFilePath != "" && d.cfg.MaFileEncrypted {
+				d.logger.Info("Decrypting maFile...", log.String("path", d.cfg.MaFilePath))
 
-				fileData, err := os.ReadFile(s.cfg.MaFilePath)
+				fileData, err := os.ReadFile(d.cfg.MaFilePath)
 				if err != nil {
 					req.resChan <- fmt.Errorf("failed to read maFile: %w", err)
 					continue
@@ -259,39 +260,39 @@ func (s *Daemon) Run(ctx context.Context) error {
 					)
 				}
 
-				s.mu.Lock()
-				s.cfg.SharedSecret = ma.SharedSecret
-				s.cfg.IdentitySecret = ma.IdentitySecret
+				d.mu.Lock()
+				d.cfg.SharedSecret = ma.SharedSecret
+				d.cfg.IdentitySecret = ma.IdentitySecret
+				d.cfg.DeviceID = devID
 
-				s.cfg.DeviceID = devID
-				if ma.AccountName != "" && s.cfg.Username == "" {
-					s.cfg.Username = ma.AccountName
+				if ma.AccountName != "" && d.cfg.Username == "" {
+					d.cfg.Username = ma.AccountName
 				}
 
-				if ma.Tokens.RefreshToken != "" && s.cfg.RefreshToken == "" {
-					s.cfg.RefreshToken = ma.Tokens.RefreshToken
+				if ma.Tokens.RefreshToken != "" && d.cfg.RefreshToken == "" {
+					d.cfg.RefreshToken = ma.Tokens.RefreshToken
 				}
 
-				s.isLocked = false
-				s.mu.Unlock()
+				d.isLocked = false
+				d.mu.Unlock()
 
-				if err := s.configureGuardian(
+				if err := d.configureGuardian(
 					ma.SharedSecret,
 					ma.IdentitySecret,
 					devID,
-					s.cfg.Username,
-					s.cfg.RefreshToken,
+					d.cfg.Username,
+					d.cfg.RefreshToken,
 				); err != nil {
 					req.resChan <- err
 
-					s.mu.Lock()
-					s.isLocked = true
-					s.mu.Unlock()
+					d.mu.Lock()
+					d.isLocked = true
+					d.mu.Unlock()
 
 					continue
 				}
 
-				s.logger.Info("Configuration successfully loaded from encrypted maFile and guardian configured!")
+				d.logger.Info("Configuration successfully loaded from encrypted maFile and guardian configured!")
 
 				req.resChan <- nil
 
@@ -306,128 +307,156 @@ func (s *Daemon) Run(ctx context.Context) error {
 				return val, nil
 			}
 
-			decryptedPass, err := decrypt(s.cfg.Password)
+			decryptedPass, err := decrypt(d.cfg.Password)
 			if err != nil {
 				req.resChan <- fmt.Errorf("failed to decrypt password: %w", err)
 				continue
 			}
 
-			decryptedRefresh, err := decrypt(s.cfg.RefreshToken)
+			decryptedRefresh, err := decrypt(d.cfg.RefreshToken)
 			if err != nil {
 				req.resChan <- fmt.Errorf("failed to decrypt refresh token: %w", err)
 				continue
 			}
 
-			decryptedShared, err := decrypt(s.cfg.SharedSecret)
+			decryptedShared, err := decrypt(d.cfg.SharedSecret)
 			if err != nil {
 				req.resChan <- fmt.Errorf("failed to decrypt shared secret: %w", err)
 				continue
 			}
 
-			decryptedIdentity, err := decrypt(s.cfg.IdentitySecret)
+			decryptedIdentity, err := decrypt(d.cfg.IdentitySecret)
 			if err != nil {
 				req.resChan <- fmt.Errorf("failed to decrypt identity secret: %w", err)
 				continue
 			}
 
-			s.mu.Lock()
-			s.cfg.Password = decryptedPass
-			s.cfg.RefreshToken = decryptedRefresh
-			s.cfg.SharedSecret = decryptedShared
-			s.cfg.IdentitySecret = decryptedIdentity
-			s.isLocked = false
-			s.mu.Unlock()
+			d.mu.Lock()
+			d.cfg.Password = decryptedPass
+			d.cfg.RefreshToken = decryptedRefresh
+			d.cfg.SharedSecret = decryptedShared
+			d.cfg.IdentitySecret = decryptedIdentity
+			d.isLocked = false
+			d.mu.Unlock()
 
-			if err := s.configureGuardian(
+			if err := d.configureGuardian(
 				decryptedShared,
 				decryptedIdentity,
-				s.cfg.DeviceID,
-				s.cfg.Username,
+				d.cfg.DeviceID,
+				d.cfg.Username,
 				decryptedRefresh,
 			); err != nil {
 				req.resChan <- err
 
-				s.mu.Lock()
-				s.isLocked = true
-				s.mu.Unlock()
+				d.mu.Lock()
+				d.isLocked = true
+				d.mu.Unlock()
 
 				continue
 			}
 
-			s.logger.Info("Configuration successfully decrypted and guardian configured!")
+			d.logger.Info("Configuration successfully decrypted and guardian configured!")
 
 			req.resChan <- nil // signal success to the gRPC client
 		}
 	}
 
-	s.logger.Info("Starting core client services...")
+	d.logger.Info("Starting core client services...")
 
-	if err := s.client.Run(); err != nil {
+	if err := d.client.Run(); err != nil {
 		return fmt.Errorf("client run failed: %w", err)
 	}
 
-	server, err := s.discoverCMServer(ctx)
+	server, err := d.discoverCMServer(ctx)
 	if err != nil {
 		return fmt.Errorf("cm discovery failed: %w", err)
 	}
 
-	s.logger.Info("Optimal CM server found",
+	go func() {
+		dir := directory.New(d.client.Service())
+
+		servers, err := dir.GetCMListForConnect(ctx, directory.CMCfg{})
+		if err == nil && len(servers) > 0 {
+			socketServers := make([]socket.CMServer, len(servers))
+			for i, srv := range servers {
+				socketServers[i] = socket.CMServer{
+					Endpoint: srv.Endpoint,
+					Type:     srv.Type,
+					Load:     float64(srv.Load),
+					Realm:    srv.Realm,
+				}
+			}
+
+			d.client.Socket().UpdateServers(socketServers)
+			d.logger.Info(
+				"CM server pool successfully loaded for dynamic rotation",
+				log.Int("count", len(socketServers)),
+			)
+		}
+	}()
+
+	d.logger.Info("Optimal CM server found",
 		log.String("endpoint", server.Endpoint),
 		log.Float64("load", server.Load),
 	)
 
-	s.setupOrchestrator()
+	d.setupOrchestrator()
 
-	if err := s.orchestrator.Start(ctx); err != nil {
+	if err := d.orchestrator.Start(ctx); err != nil {
 		return fmt.Errorf("orchestrator start failed: %w", err)
 	}
 
 	// Subscribe to auth and apps events to stay in sync with auto-play status
-	s.sub = s.client.Bus().Subscribe(
+	d.sub = d.client.Bus().Subscribe(
 		&auth.LoggedOnEvent{},
 		&auth.LoggedOffEvent{},
 		&apps.AppLaunchedEvent{},
 		&apps.AppQuitEvent{},
 		&auth.SteamGuardRequiredEvent{},
+		&web.NewOfferEvent{},
 	)
 
-	s.wg.Go(func() {
-		s.handleEvents(ctx)
+	d.wg.Go(func() {
+		d.handleEvents(ctx)
 	})
 
-	username := s.cfg.Username
-	if username == "" && s.cfg.RefreshToken != "" {
-		if id := auth.ExtractSteamIDFromJWT(s.cfg.RefreshToken); id != 0 {
+	d.wg.Go(func() {
+		d.watchConnection(ctx)
+	})
+
+	username := d.cfg.Username
+	if username == "" && d.cfg.RefreshToken != "" {
+		if id := auth.ExtractSteamIDFromJWT(d.cfg.RefreshToken); id != 0 {
 			username = strconv.FormatUint(id.Uint64(), 10)
 		}
 	}
 
-	s.logger.Info("Connecting and authenticating with Steam...",
+	d.logger.Info("Connecting and authenticating with Steam...",
 		log.String("username", username),
 	)
 
 	details := &auth.LogOnDetails{
 		AccountName:  username,
-		Password:     s.cfg.Password,
-		RefreshToken: s.cfg.RefreshToken,
+		Password:     d.cfg.Password,
+		RefreshToken: d.cfg.RefreshToken,
 	}
-	if err := s.client.ConnectAndLogin(ctx, server, details); err != nil {
+	if err := d.client.ConnectAndLogin(ctx, server, details); err != nil {
 		return fmt.Errorf("connect and login failed: %w", err)
 	}
 
-	if steamID := s.client.SteamID(); steamID != 0 {
-		s.logger = s.logger.With(log.SteamID(steamID.Uint64()))
+	if steamID := d.client.SteamID(); steamID != 0 {
+		d.logger = d.logger.With(log.SteamID(steamID.Uint64()))
 	}
 
-	s.logger.Info("Bot logged in and fully operational")
+	d.logger.Info("Bot logged in and fully operational")
 
 	return nil
 }
 
 // StartStartupMaintenance launches a background process to maintain inventory
 // after the Game Coordinator transitions to the Connected state.
-func (s *Daemon) StartStartupMaintenance(ctx context.Context) {
-	driver, ok := s.registry.Get(tf2driver.AppID)
+func (d *Daemon) StartStartupMaintenance(ctx context.Context) {
+	driver, ok := d.registry.Get(tf2driver.AppID)
 	if !ok {
 		return
 	}
@@ -448,16 +477,16 @@ func (s *Daemon) StartStartupMaintenance(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-timeout:
-				s.logger.Error(
+				d.logger.Error(
 					"Startup inventory maintenance cancelled: timed out waiting for TF2 Game Coordinator connection",
 				)
 
 				return
 
 			case <-ticker.C:
-				if s.tf2 != nil && s.tf2.Connected() {
-					if err := tf2Driver.RunMaintenance(ctx, s.logger); err != nil {
-						s.logger.Error("Startup inventory maintenance failed", log.Err(err))
+				if d.tf2 != nil && d.tf2.Connected() {
+					if err := tf2Driver.RunMaintenance(ctx, d.logger); err != nil {
+						d.logger.Error("Startup inventory maintenance failed", log.Err(err))
 					}
 
 					return
@@ -468,46 +497,47 @@ func (s *Daemon) StartStartupMaintenance(ctx context.Context) {
 }
 
 // Close stops the daemon and cleans up resources.
-func (s *Daemon) Close() {
-	s.logger.Info("Stopping active game sessions...")
-	s.mu.Lock()
-	currentApp := s.currentAppID
-	s.currentAppID = 0
-	s.mu.Unlock()
+func (d *Daemon) Close() {
+	d.logger.Info("Stopping active game sessions...")
+	d.mu.Lock()
+	currentApp := d.currentAppID
+	d.currentAppID = 0
+	d.desiredAppID = 0
+	d.mu.Unlock()
 
 	if currentApp != 0 {
-		if driver, ok := s.registry.Get(currentApp); ok {
-			s.logger.Info("Sending goodbye to game coordinator...", log.Uint32("appid", currentApp))
+		if driver, ok := d.registry.Get(currentApp); ok {
+			d.logger.Info("Sending goodbye to game coordinator...", log.Uint32("appid", currentApp))
 
 			_ = driver.OnStopGC(context.Background())
 		}
 
-		_ = s.apps.StopPlaying(context.Background())
+		_ = d.apps.StopPlaying(context.Background())
 	}
 
-	if s.orchestrator != nil {
-		s.orchestrator.Stop()
-		s.logger.Info("Behavior orchestrator stopped")
+	if d.orchestrator != nil {
+		d.orchestrator.Stop()
+		d.logger.Info("Behavior orchestrator stopped")
 	}
 
-	if s.sub != nil {
-		s.sub.Unsubscribe()
+	if d.sub != nil {
+		d.sub.Unsubscribe()
 	}
 
-	s.wg.Wait()
+	d.wg.Wait()
 
-	if err := s.client.Close(); err != nil {
-		s.logger.Error("Error during client shutdown", log.Err(err))
+	if err := d.client.Close(); err != nil {
+		d.logger.Error("Error during client shutdown", log.Err(err))
 	} else {
-		s.logger.Info("Client session closed")
+		d.logger.Info("Client session closed")
 	}
 
-	s.logger.Info("Bot shut down successfully")
+	d.logger.Info("Bot shut down successfully")
 }
 
-func (s *Daemon) setupOrchestrator() {
-	s.orchestrator = behavior.NewOrchestrator(s.client.Bus(), s.logger)
-	provider := &dynamicGuardProvider{client: s.client}
+func (d *Daemon) setupOrchestrator() {
+	d.orchestrator = behavior.NewOrchestrator(d.client.Bus(), d.logger)
+	provider := &dynamicGuardProvider{client: d.client}
 
 	guardBehaviorCfg := guard.Config{
 		AutoAcceptTypes: generic.NewSet(
@@ -518,42 +548,42 @@ func (s *Daemon) setupOrchestrator() {
 		PollOnStart: true,
 	}
 
-	guard.AutoAccept(s.orchestrator, provider, guardBehaviorCfg)
+	guard.AutoAccept(d.orchestrator, provider, guardBehaviorCfg)
 
-	if s.cfg.EnableAchievements {
-		s.logger.Info("Installing human-like achievements simulation behavior")
-		achievements.Simulate(s.orchestrator, s.tf2, tf2.AchievementConfig())
+	if d.cfg.EnableAchievements {
+		d.logger.Info("Installing human-like achievements simulation behavior")
+		achievements.Simulate(d.orchestrator, d.tf2, tf2.AchievementConfig())
 	}
 }
 
-func (s *Daemon) discoverCMServer(ctx context.Context) (socket.CMServer, error) {
+func (d *Daemon) discoverCMServer(ctx context.Context) (socket.CMServer, error) {
 	dirCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	s.logger.Info("Discovering optimal Steam Connection Manager server...")
-	dir := directory.New(s.client.Service())
+	d.logger.Info("Discovering optimal Steam Connection Manager server...")
+	dir := directory.New(d.client.Service())
 
 	return dir.GetOptimalCMServer(dirCtx)
 }
 
 // GetStatus returns the daemon state, connection status, memory usage, and active game.
-func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.GetStatusResponse, error) {
-	connected := s.client.Socket().IsConnected()
-	steamID := s.client.SteamID().String()
+func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.GetStatusResponse, error) {
+	connected := d.client.Socket().IsConnected()
+	steamID := d.client.SteamID().String()
 
-	s.mu.RLock()
-	currentApp := s.currentAppID
-	locked := s.isLocked
-	s.mu.RUnlock()
+	d.mu.RLock()
+	currentApp := d.currentAppID
+	locked := d.isLocked
+	d.mu.RUnlock()
 
-	uptime := time.Since(s.uptimeStart).Truncate(time.Second).String()
+	uptime := time.Since(d.uptimeStart).Truncate(time.Second).String()
 
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
 	appName := "Unknown Steam Game"
 	if currentApp != 0 {
-		if _, ok := s.registry.Get(currentApp); ok {
+		if _, ok := d.registry.Get(currentApp); ok {
 			// Resolve name from driver
 			if currentApp == tf2.AppID {
 				appName = "Team Fortress 2"
@@ -561,7 +591,7 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 		}
 	}
 
-	acc := account.From(s.client)
+	acc := account.From(d.client)
 
 	var (
 		personaName       string
@@ -615,14 +645,14 @@ func (s *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 		IsCommunityBanned: isCommunityBanned,
 		VacBansCount:      vacBansCount,
 		EmailAddress:      emailAddress,
-		TrustedIds:        s.cfg.TrustedIDs,
-		ExcludedIds:       s.cfg.ExcludedIDs,
+		TrustedIds:        d.cfg.TrustedIDs,
+		ExcludedIds:       d.cfg.ExcludedIDs,
 	}, nil
 }
 
 // FreeMemory triggers manual Garbage Collection and releases system memory back to the OS immediately.
-func (s *Daemon) FreeMemory(ctx context.Context, req *pb.FreeMemoryRequest) (*pb.FreeMemoryResponse, error) {
-	s.logger.Info("Forcing manual garbage collection and freeing system memory...")
+func (d *Daemon) FreeMemory(ctx context.Context, req *pb.FreeMemoryRequest) (*pb.FreeMemoryResponse, error) {
+	d.logger.Info("Forcing manual garbage collection and freeing system memory...")
 
 	runtime.GC()
 	debug.FreeOSMemory()
@@ -637,12 +667,12 @@ func (s *Daemon) FreeMemory(ctx context.Context, req *pb.FreeMemoryRequest) (*pb
 }
 
 // StopDaemon initiates graceful shutdown of the daemon.
-func (s *Daemon) StopDaemon(ctx context.Context, req *pb.StopDaemonRequest) (*pb.StopDaemonResponse, error) {
-	s.logger.Info("Stop request received from CLI client")
+func (d *Daemon) StopDaemon(ctx context.Context, req *pb.StopDaemonRequest) (*pb.StopDaemonResponse, error) {
+	d.logger.Info("Stop request received from CLI client")
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		s.shutdownFunc()
+		d.shutdownFunc()
 	}()
 
 	return &pb.StopDaemonResponse{
@@ -651,7 +681,7 @@ func (s *Daemon) StopDaemon(ctx context.Context, req *pb.StopDaemonRequest) (*pb
 }
 
 // generateMemoryProfile collects runtime MemStats and formats them into a clean ASCII table.
-func (s *Daemon) generateMemoryProfile() string {
+func (d *Daemon) generateMemoryProfile() string {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
@@ -696,16 +726,16 @@ func (s *Daemon) generateMemoryProfile() string {
 }
 
 // SetFriendNickname sets a custom nickname for a specific friend.
-func (s *Daemon) SetFriendNickname(
+func (d *Daemon) SetFriendNickname(
 	ctx context.Context,
 	req *pb.SetFriendNicknameRequest,
 ) (*pb.SetFriendNicknameResponse, error) {
-	s.logger.Info("Set friend nickname request",
+	d.logger.Info("Set friend nickname request",
 		log.Uint64("steam_id", req.GetSteamId()),
 		log.String("nickname", req.GetNickname()),
 	)
 
-	mgr := friends.From(s.client)
+	mgr := friends.From(d.client)
 	if mgr == nil {
 		return nil, errors.New("friends manager not initialized")
 	}

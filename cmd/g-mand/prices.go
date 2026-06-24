@@ -24,26 +24,26 @@ type manualPriceJSONEntry struct {
 }
 
 // UpdateManualPrices updates manual pricing values for items in the daemon.
-func (s *Daemon) UpdateManualPrices(
+func (d *Daemon) UpdateManualPrices(
 	ctx context.Context,
 	req *pb.UpdateManualPricesRequest,
 ) (*pb.UpdateManualPricesResponse, error) {
-	s.logger.Info("Update manual prices request received", log.Int("count", len(req.GetPrices())))
+	d.logger.Info("Update manual prices request received", log.Int("count", len(req.GetPrices())))
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
 	prices := make(map[string]manualPriceJSONEntry)
 
-	data, err := os.ReadFile(s.cfg.ManualPricesPath)
+	data, err := os.ReadFile(d.cfg.ManualPricesPath)
 	if err == nil {
 		_ = json.Unmarshal(data, &prices)
 	} else if !os.IsNotExist(err) {
-		s.logger.Warn("Failed to read manual prices file", log.Err(err))
+		d.logger.Warn("Failed to read manual prices file", log.Err(err))
 	}
 
 	for sku, entry := range req.GetPrices() {
-		s.logger.Info("Updating manual price",
+		d.logger.Info("Updating manual price",
 			log.String("sku", sku),
 			log.Uint32("buy_keys", entry.GetBuyKeys()),
 			log.Float64("buy_metal", entry.GetBuyMetal()),
@@ -64,17 +64,17 @@ func (s *Daemon) UpdateManualPrices(
 		return nil, fmt.Errorf("failed to marshal manual prices: %w", err)
 	}
 
-	dir := filepath.Dir(s.cfg.ManualPricesPath)
+	dir := filepath.Dir(d.cfg.ManualPricesPath)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create directory for manual prices: %w", err)
 	}
 
-	tmpPath := s.cfg.ManualPricesPath + ".tmp"
+	tmpPath := d.cfg.ManualPricesPath + ".tmp"
 	if err := os.WriteFile(tmpPath, newData, 0o600); err != nil {
 		return nil, fmt.Errorf("failed to write manual prices: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, s.cfg.ManualPricesPath); err != nil {
+	if err := os.Rename(tmpPath, d.cfg.ManualPricesPath); err != nil {
 		return nil, fmt.Errorf("failed to save manual prices: %w", err)
 	}
 

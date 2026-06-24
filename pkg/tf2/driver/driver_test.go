@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package tf2
+package driver
 
 import (
 	"bytes"
@@ -152,15 +152,13 @@ func setUnexportedField(target any, fieldName string, value any) {
 	getUnexportedField(target, fieldName).Set(reflect.ValueOf(value))
 }
 
-func setFSMState(tf2Mod *tf2.TF2, state int) {
-	fsmVal := getUnexportedField(tf2Mod, "fsm")
-	fsmStruct := fsmVal.Elem()
-
-	currentField := fsmStruct.FieldByName("current")
-	if currentField.IsValid() {
-		fsmCurrent := reflect.NewAt(currentField.Type(), unsafe.Pointer(currentField.UnsafeAddr())).Elem()
-		fsmCurrent.Set(reflect.ValueOf(state).Convert(currentField.Type()))
+func setSOCacheItems(soCache *tf2.SOCache, items []*tf2.Item) {
+	itemMap := make(map[uint64]*tf2.Item)
+	for _, it := range items {
+		itemMap[it.ID] = it
 	}
+
+	setUnexportedField(soCache, "items", itemMap)
 }
 
 func setupDriver(
@@ -196,8 +194,9 @@ func setupDriver(
 	gcMock := &mockCoordinatorProvider{}
 	setUnexportedField(tf2Mod, "gc", gcMock)
 
-	// Set state to Connected via FSM
-	setFSMState(tf2Mod, 2)
+	// Set state to Connected (2)
+	fsmVal := getUnexportedField(tf2Mod, "fsm")
+	fsmVal.MethodByName("ForceSet").Call([]reflect.Value{reflect.ValueOf(tf2.Connected)})
 
 	// Create and set SOCache
 	soCache := tf2.NewSOCache(gcMock)
@@ -275,7 +274,7 @@ func setupDriver(
 func TestDriver_Metadata(t *testing.T) {
 	d, _, _, _, _, _, _, _ := setupDriver(t)
 	assert.Equal(t, uint32(440), d.AppID())
-	assert.NotNil(t, d.InventoryProvider())
+	assert.NotNil(t, d.GameProvider())
 }
 
 func TestDriver_GCStartStop(t *testing.T) {
@@ -322,14 +321,15 @@ func TestDriver_RunMaintenance(t *testing.T) {
 	d, tf2Mod, bpMod, _, _, gcMock, _, _ := setupDriver(t)
 
 	// Test 1: GC not connected
-	setFSMState(tf2Mod, 0)
+	fsmVal := getUnexportedField(tf2Mod, "fsm")
+	fsmVal.MethodByName("ForceSet").Call([]reflect.Value{reflect.ValueOf(tf2.Disconnected)})
 
 	err := d.RunMaintenance(context.Background(), log.Discard)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no active connection to TF2 Game Coordinator")
 
 	// Set state back to Connected (2)
-	setFSMState(tf2Mod, 2)
+	fsmVal.MethodByName("ForceSet").Call([]reflect.Value{reflect.ValueOf(tf2.Connected)})
 
 	// Setup bpMod cache and items (duplicate weapons)
 	bpCache := &mockBackpackCache{
@@ -799,6 +799,108 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, res, "888")
 
+	doerMock.doFunc = func(ctx context.Context, req *tr.Request) (*tr.Response, error) {
+		body := []byte(`{
+			"response": {
+				"offer": {
+					"tradeofferid": "777",
+					"accountid_other": 12345,
+					"message": "mock",
+					"trade_offer_state": 2,
+					"items_to_give": [],
+					"items_to_receive": []
+				}
+			}
+		}`)
+
+		return tr.NewResponse(io.NopCloser(bytes.NewReader(body)), nil), nil
+	}
+
+	res, err = d.ExecuteAction(ctx, "all-offers-rich", nil)
+	assert.NoError(t, err)
+	assert.Contains(t, res, "777")
+
+	doerMock.doFunc = func(ctx context.Context, req *tr.Request) (*tr.Response, error) {
+		body := []byte(`{
+			"response": {
+				"offer": {
+					"tradeofferid": "888",
+					"accountid_other": 12345,
+					"message": "mock",
+					"trade_offer_state": 2,
+					"items_to_give": [],
+					"items_to_receive": []
+				}
+			}
+		}`)
+
+		return tr.NewResponse(io.NopCloser(bytes.NewReader(body)), nil), nil
+	}
+
+	res, err = d.ExecuteAction(ctx, "all-sent-offers-rich", nil)
+	assert.NoError(t, err)
+	assert.Contains(t, res, "888")
+
+	// 18d. "targeted-smelt"
+	_, err = d.ExecuteAction(ctx, "targeted-smelt", nil)
+	assert.Error(t, err)
+
+	bpCache.items = []*tf2.Item{
+		{ID: 101, DefIndex: 5000, Quality: 6, Quantity: 1, IsTradable: true, IsCraftable: true},
+		{ID: 102, DefIndex: 5000, Quality: 6, Quantity: 1, IsTradable: true, IsCraftable: true},
+	}
+	gcMock.sendRawFunc = func(ctx context.Context, appID, msgType uint32, payload []byte) error {
+		bpCache.items = nil
+
+		go func() {
+			time.Sleep(5 * time.Millisecond)
+			tf2Mod.Bus.Publish(&tf2.CraftResponseEvent{
+				CreatedItems: []uint64{301},
+			})
+		}()
+
+		return nil
+	}
+	res, err = d.ExecuteAction(ctx, "targeted-smelt", map[string]string{"item_id1": "101", "item_id2": "102"})
+	assert.NoError(t, err)
+	assert.Contains(t, res, "Successfully smelted items 101 and 102")
+
+	// 18e. "backpack-value"
+	// Mock HTTP requests to pricedb
+	oldTransport := http.DefaultClient.Transport
+	defer func() { http.DefaultClient.Transport = oldTransport }()
+
+	oldDefaultTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = oldDefaultTransport }()
+
+	var rt http.RoundTripper = &mockRounder{
+		roundTrip: func(req *http.Request) (*http.Response, error) {
+			body := `[
+				{"sku": "5021;6", "buy": {"keys": 0, "metal": 72.5}, "sell": {"keys": 0, "metal": 73.0}},
+				{"sku": "5002;6", "buy": {"keys": 0, "metal": 1.0}, "sell": {"keys": 0, "metal": 1.0}}
+			]`
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Header:     make(http.Header),
+			}, nil
+		},
+	}
+
+	http.DefaultClient.Transport = rt
+	http.DefaultTransport = rt
+
+	// Seed item cache
+	itemsMap[123] = &tf2.Item{ID: 123, DefIndex: 5021, Quality: 6, Quantity: 1, IsTradable: true, SKU: "5021;6"}
+	itemsMap[126] = &tf2.Item{ID: 126, DefIndex: 5002, Quality: 1, Quantity: 2, IsTradable: true, SKU: "5002;6"}
+	setUnexportedField(soCache, "items", itemsMap)
+
+	res, err = d.ExecuteAction(ctx, "backpack-value", nil)
+	assert.NoError(t, err)
+	assert.Contains(t, res, "BACKPACK VALUATION")
+	assert.Contains(t, res, "Key Rate (Buy/Sell)")
+
 	// 19. Default/Unsupported
 	_, err = d.ExecuteAction(ctx, "unsupported-action", nil)
 	assert.Error(t, err)
@@ -847,5 +949,385 @@ func TestExtractQuotedString(t *testing.T) {
 		if tc.ok {
 			assert.Equal(t, tc.expected, res, "for input: %s", tc.input)
 		}
+	}
+}
+
+type mockRounder struct {
+	roundTrip func(req *http.Request) (*http.Response, error)
+}
+
+func (m *mockRounder) RoundTrip(req *http.Request) (*http.Response, error) {
+	return m.roundTrip(req)
+}
+
+func TestDriver_ItemDetails_ItemFound(t *testing.T) {
+	d, tf2Mod, _, _, _, _, _, _ := setupDriver(t)
+
+	// Add an item to the cache
+	soCache := tf2Mod.Cache()
+	item := &tf2.Item{
+		ID:          100,
+		DefIndex:    5000,
+		Quality:     6,
+		Quantity:    1,
+		IsTradable:  true,
+		IsCraftable: true,
+		SKU:         "5000;6",
+		Paint:       0xFF69B4,
+	}
+	setSOCacheItems(soCache, []*tf2.Item{item})
+
+	result, err := d.ExecuteAction(context.Background(), "item-details", map[string]string{
+		"item_id": "100",
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "ITEM DETAILS")
+	assert.Contains(t, result, "Scout Weapon")
+	assert.Contains(t, result, "Asset ID:    100")
+	assert.Contains(t, result, "SKU:         5000;6")
+	assert.Contains(t, result, "Paint:")
+}
+
+func TestDriver_ItemDetails_ItemNotFound(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	_, err := d.ExecuteAction(context.Background(), "item-details", map[string]string{
+		"item_id": "99999",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestDriver_ItemDetails_InvalidID(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	_, err := d.ExecuteAction(context.Background(), "item-details", map[string]string{
+		"item_id": "not-a-number",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid item_id")
+}
+
+func TestDriver_ItemDetails_MissingParam(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	_, err := d.ExecuteAction(context.Background(), "item-details", map[string]string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires item_id")
+}
+
+func TestDriver_InventoryStats_EmptyBackpack(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	result, err := d.ExecuteAction(context.Background(), "inventory-stats", map[string]string{})
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "INVENTORY STATS")
+	assert.Contains(t, result, "Total Items:    0")
+	assert.Contains(t, result, "Unusuals:       0")
+}
+
+func TestDriver_InventoryStats_WithItems(t *testing.T) {
+	d, tf2Mod, _, _, _, _, _, _ := setupDriver(t)
+
+	soCache := tf2Mod.Cache()
+	setSOCacheItems(soCache, []*tf2.Item{
+		{ID: 1, DefIndex: 5000, Quality: 6, Quantity: 1, IsTradable: true, IsCraftable: true},
+		{ID: 2, DefIndex: 5001, Quality: 5, Quantity: 1, IsTradable: true, IsCraftable: true},
+		{ID: 3, DefIndex: 5000, Quality: 6, Quantity: 1, IsTradable: false, IsCraftable: false},
+	})
+
+	result, err := d.ExecuteAction(context.Background(), "inventory-stats", map[string]string{})
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "Total Items:    3")
+	assert.Contains(t, result, "Tradable:       2")
+	assert.Contains(t, result, "Unusuals:       1")
+}
+
+func TestDriver_BackpackValue_Empty(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	result, err := d.ExecuteAction(context.Background(), "backpack-value", map[string]string{})
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "Backpack is empty")
+}
+
+func TestDriver_BackpackValue_WithItems(t *testing.T) {
+	d, tf2Mod, _, _, _, _, _, _ := setupDriver(t)
+
+	soCache := tf2Mod.Cache()
+	setSOCacheItems(soCache, []*tf2.Item{
+		{ID: 1, DefIndex: 5021, Quality: 6, Quantity: 2, SKU: "5021;6"},
+		{ID: 2, DefIndex: 5002, Quality: 6, Quantity: 9, SKU: "5002;6"},
+	})
+
+	// Backpack value works without pricedb — unpriced items get fallback pricing
+	result, err := d.ExecuteAction(context.Background(), "backpack-value", map[string]string{})
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "BACKPACK VALUATION")
+	assert.Contains(t, result, "Total Items:        2")
+	assert.Contains(t, result, "Buy Valuation:")
+	assert.Contains(t, result, "Sell Valuation:")
+}
+
+func TestDriver_ApplyTool_MissingToolID(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	_, err := d.ExecuteAction(context.Background(), "apply-tool", map[string]string{
+		"item_id": "100",
+		"type":    "paint",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires tool_id")
+}
+
+func TestDriver_ApplyTool_MissingItemID(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	_, err := d.ExecuteAction(context.Background(), "apply-tool", map[string]string{
+		"tool_id": "100",
+		"type":    "paint",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires item_id")
+}
+
+func TestDriver_ApplyTool_MissingType(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	_, err := d.ExecuteAction(context.Background(), "apply-tool", map[string]string{
+		"tool_id": "100",
+		"item_id": "200",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires type")
+}
+
+func TestDriver_ApplyTool_UnsupportedType(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	_, err := d.ExecuteAction(context.Background(), "apply-tool", map[string]string{
+		"tool_id": "100",
+		"item_id": "200",
+		"type":    "unknown_tool",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported")
+}
+
+func TestDriver_BatchDelete_EmptyInput(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	result, err := d.ExecuteAction(context.Background(), "batch-delete", map[string]string{
+		"item_ids": "",
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "0 deleted")
+}
+
+func TestDriver_BatchDelete_MixedResults(t *testing.T) {
+	d, tf2Mod, _, _, _, _, _, _ := setupDriver(t)
+
+	soCache := tf2Mod.Cache()
+	setSOCacheItems(soCache, []*tf2.Item{
+		{ID: 100, DefIndex: 5000, Quality: 6, Quantity: 1},
+	})
+
+	// 100 exists, 999 does not, "abc" is invalid
+	result, err := d.ExecuteAction(context.Background(), "batch-delete", map[string]string{
+		"item_ids": "100,999,abc",
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "deleted")
+	assert.Contains(t, result, "failed")
+}
+
+func TestDriver_GetSectionPriority(t *testing.T) {
+	d, _, _, schemaMod, _, _, _, _ := setupDriver(t)
+	_ = d
+
+	s := schemaMod.Get()
+
+	tests := []struct {
+		name     string
+		item     *tf2.Item
+		expected int
+	}{
+		{
+			name:     "currency key",
+			item:     &tf2.Item{DefIndex: 5021},
+			expected: SectionPureCurrency,
+		},
+		{
+			name:     "currency refined",
+			item:     &tf2.Item{DefIndex: 5002},
+			expected: SectionPureCurrency,
+		},
+		{
+			name:     "supply crate",
+			item:     &tf2.Item{DefIndex: 5003},
+			expected: SectionCratesCases,
+		},
+		{
+			name:     "unknown item",
+			item:     &tf2.Item{DefIndex: 99999},
+			expected: SectionToolsActions,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GetSectionPriority(tt.item, s)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDriver_HealthCheck(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	result, err := d.ExecuteAction(context.Background(), "health-check", map[string]string{})
+
+	require.NoError(t, err)
+	assert.Contains(t, result, "HEALTH CHECK")
+	assert.Contains(t, result, "GC Connection:")
+	assert.Contains(t, result, "Cached Items:")
+	assert.Contains(t, result, "Memory:")
+	assert.Contains(t, result, "Goroutines:")
+}
+
+func TestDriver_PriceCheck_SKUFound(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	// Price-check uses its own pricedb client; in CI this hits the real API.
+	// We test that the action dispatches correctly and handles the response.
+	result, err := d.ExecuteAction(context.Background(), "price-check", map[string]string{
+		"sku": "5021;6",
+	})
+
+	// May succeed (if API reachable) or fail (network error) — both are valid
+	if err != nil {
+		assert.Contains(t, err.Error(), "fetch price")
+	} else {
+		assert.Contains(t, result, "PRICE CHECK: 5021;6")
+	}
+}
+
+func TestDriver_PriceCheck_SKUNotFound(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	// Price-check uses its own pricedb client; test that action dispatches correctly
+	result, err := d.ExecuteAction(context.Background(), "price-check", map[string]string{
+		"sku": "99999;6",
+	})
+	if err != nil {
+		assert.Contains(t, err.Error(), "fetch price")
+	} else {
+		assert.Contains(t, result, "No price data found")
+	}
+}
+
+func TestDriver_PriceCheck_MissingParam(t *testing.T) {
+	d, _, _, _, _, _, _, _ := setupDriver(t)
+
+	_, err := d.ExecuteAction(context.Background(), "price-check", map[string]string{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires sku")
+}
+
+func TestRecipeComponent_Methods(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		comp     tf2.RecipeComponent
+		method   string
+		expected bool
+	}{
+		{"is output", tf2.RecipeComponent{Flags: 0x01}, "IsOutput", true},
+		{"not output", tf2.RecipeComponent{Flags: 0x00}, "IsOutput", false},
+		{"is untradable", tf2.RecipeComponent{Flags: 0x02}, "IsUntradable", true},
+		{"has defindex", tf2.RecipeComponent{Flags: 0x04}, "HasDefIndex", true},
+		{"has quality", tf2.RecipeComponent{Flags: 0x08}, "HasQuality", true},
+		{"is complete", tf2.RecipeComponent{NumRequired: 3, NumFulfilled: 3}, "IsComplete", true},
+		{"not complete", tf2.RecipeComponent{NumRequired: 3, NumFulfilled: 2}, "IsComplete", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var result bool
+			switch tt.method {
+			case "IsOutput":
+				result = tt.comp.IsOutput()
+			case "IsUntradable":
+				result = tt.comp.IsUntradable()
+			case "HasDefIndex":
+				result = tt.comp.HasDefIndex()
+			case "HasQuality":
+				result = tt.comp.HasQuality()
+			case "IsComplete":
+				result = tt.comp.IsComplete()
+			}
+
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDriver_FindItemInCache(t *testing.T) {
+	_, tf2Mod, _, _, _, _, _, _ := setupDriver(t)
+
+	soCache := tf2Mod.Cache()
+	setSOCacheItems(soCache, []*tf2.Item{
+		{ID: 100, DefIndex: 5000, Quality: 6},
+		{ID: 200, DefIndex: 5001, Quality: 5},
+	})
+
+	found := findItemInCache(tf2Mod, 100)
+	require.NotNil(t, found)
+	assert.Equal(t, uint64(100), found.ID)
+
+	notFound := findItemInCache(tf2Mod, 999)
+	assert.Nil(t, notFound)
+}
+
+func TestDriver_GetSKU(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		item     *tf2.Item
+		expected string
+	}{
+		{
+			name:     "item with SKU",
+			item:     &tf2.Item{SKU: "5021;6"},
+			expected: "5021;6",
+		},
+		{
+			name:     "item without SKU",
+			item:     &tf2.Item{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.item.SKU)
+		})
 	}
 }

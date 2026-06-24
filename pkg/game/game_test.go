@@ -77,7 +77,7 @@ func TestTF2DriverLifecycleAndQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, items)
 
-	assert.Equal(t, d, d.InventoryProvider())
+	assert.Equal(t, d, d.GameProvider())
 }
 
 func TestTF2DriverActionErrors(t *testing.T) {

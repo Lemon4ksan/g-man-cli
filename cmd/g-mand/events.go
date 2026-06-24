@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -22,8 +23,8 @@ import (
 )
 
 // StreamEvents broadcasts the event bus notifications as a gRPC stream.
-func (s *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonService_StreamEventsServer) error {
-	sub := s.client.Bus().Subscribe(
+func (d *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonService_StreamEventsServer) error {
+	sub := d.client.Bus().Subscribe(
 		&tf2.BackpackLoadedEvent{},
 		&tf2.ItemUpdatedEvent{},
 		&tf2.ItemAcquiredEvent{},
@@ -36,14 +37,14 @@ func (s *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonServi
 	)
 	defer sub.Unsubscribe()
 
-	s.logger.Info("Client connected to daemon event stream")
+	d.logger.Info("Client connected to daemon event stream")
 
 	for {
 		select {
 		case <-stream.Context().Done():
-			s.logger.Info("Client disconnected from event stream")
+			d.logger.Info("Client disconnected from event stream")
 			return stream.Context().Err()
-		case <-s.shutdownCtx.Done():
+		case <-d.shutdownCtx.Done():
 			return errors.New("daemon shutting down")
 		case ev, ok := <-sub.C():
 			if !ok {
@@ -70,7 +71,7 @@ func (s *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonServi
 			}
 
 			if err != nil {
-				s.logger.Error("Failed to marshal event for stream", log.Err(err))
+				d.logger.Error("Failed to marshal event for stream", log.Err(err))
 				continue
 			}
 
@@ -83,75 +84,270 @@ func (s *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonServi
 			}
 
 			if err := stream.Send(resp); err != nil {
-				s.logger.Error("Failed to send event to stream", log.Err(err))
+				d.logger.Error("Failed to send event to stream", log.Err(err))
 				return err
 			}
 		}
 	}
 }
 
-func (s *Daemon) handleEvents(ctx context.Context) {
+func (d *Daemon) handleEvents(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case event, ok := <-s.sub.C():
+		case event, ok := <-d.sub.C():
 			if !ok {
 				return
 			}
 
 			switch ev := event.(type) {
 			case *auth.LoggedOnEvent:
-				s.logger.Info("Login successful", log.Uint64("steam_id", ev.SteamID))
+				d.logger.Info("Login successful", log.Uint64("steam_id", ev.SteamID))
+				d.mu.RLock()
+				desiredAppID := d.desiredAppID
+				d.mu.RUnlock()
+
+				if desiredAppID != 0 {
+					d.logger.Info("Resuming game play after reconnection", log.Uint32("appid", desiredAppID))
+
+					go func(aid uint32) {
+						playCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+						defer cancel()
+
+						d.mu.Lock()
+						d.currentAppID = aid
+						d.mu.Unlock()
+
+						if err := d.apps.PlayGames(playCtx, []uint32{aid}, true); err != nil {
+							d.logger.Error(
+								"Failed to resume playing game after reconnection",
+								log.Uint32("appid", aid),
+								log.Err(err),
+							)
+							d.mu.Lock()
+							d.currentAppID = 0
+							d.mu.Unlock()
+
+							return
+						}
+
+						if driver, ok := d.registry.Get(aid); ok {
+							d.logger.Info(
+								"Resuming game coordinator session after reconnection",
+								log.Uint32("appid", aid),
+							)
+
+							if err := driver.OnStartGC(playCtx); err != nil {
+								d.logger.Error(
+									"GC startup failed on driver after reconnection",
+									log.Uint32("appid", aid),
+									log.Err(err),
+								)
+							}
+						}
+
+						if aid == tf2.AppID {
+							d.StartStartupMaintenance(d.shutdownCtx)
+						}
+					}(desiredAppID)
+				}
+
 			case *auth.LoggedOffEvent:
-				s.logger.Info("Logged off")
+				d.logger.Warn("Logged off from Steam", log.Uint32("result", uint32(ev.Result))) // #nosec G115
+				d.mu.RLock()
+				activeApp := d.currentAppID
+				d.mu.RUnlock()
+
+				if activeApp != 0 {
+					if driver, ok := d.registry.Get(activeApp); ok {
+						d.logger.Info("Stopping GC session due to disconnect", log.Uint32("appid", activeApp))
+
+						_ = driver.OnStopGC(ctx)
+					}
+
+					_ = d.apps.StopPlaying(ctx)
+				}
+
 			case *apps.AppLaunchedEvent:
-				s.onAppLaunched(ctx, ev.AppID)
+				d.onAppLaunched(ctx, ev.AppID)
 			case *apps.AppQuitEvent:
-				s.onAppQuit(ctx, ev.AppID)
+				d.onAppQuit(ctx, ev.AppID)
 			case *auth.SteamGuardRequiredEvent:
-				s.activeAuthCallbackMu.Lock()
-				s.activeAuthCallback = ev.Callback
-				s.activeAuthCallbackMu.Unlock()
-				s.logger.Info(
+				d.activeAuthCallbackMu.Lock()
+				d.activeAuthCallback = ev.Callback
+				d.activeAuthCallbackMu.Unlock()
+				d.logger.Info(
 					"Steam Guard code required",
 					log.Bool("is_2fa", ev.Is2FA),
 					log.String("domain", ev.EmailDomain),
 				)
+
+			case *web.NewOfferEvent:
+				partnerID := strconv.FormatUint(ev.Offer.OtherSteamID.Uint64(), 10)
+
+				if slices.Contains(d.cfg.ExcludedIDs, partnerID) {
+					d.logger.Info(
+						"Auto-declining trade offer from excluded SteamID",
+						log.Uint64("offer_id", ev.Offer.ID),
+						log.String("partner_steam_id", partnerID),
+					)
+
+					webMod := web.From(d.client)
+					if webMod != nil {
+						if err := webMod.DeclineOffer(ctx, ev.Offer.ID); err != nil {
+							d.logger.Error(
+								"Failed to auto-decline trade offer from excluded SteamID",
+								log.Uint64("offer_id", ev.Offer.ID),
+								log.Err(err),
+							)
+						}
+					}
+
+					continue
+				}
+
+				if slices.Contains(d.cfg.TrustedIDs, partnerID) {
+					d.logger.Info(
+						"Auto-accepting trade offer from trusted SteamID",
+						log.Uint64("offer_id", ev.Offer.ID),
+						log.String("partner_steam_id", partnerID),
+					)
+
+					webMod := web.From(d.client)
+					if webMod == nil {
+						d.logger.Error(
+							"Web module not registered, cannot auto-accept offer",
+							log.Uint64("offer_id", ev.Offer.ID),
+						)
+
+						continue
+					}
+
+					if err := webMod.AcceptOffer(ctx, ev.Offer.ID); err != nil {
+						d.logger.Error(
+							"Failed to auto-accept trade offer from trusted SteamID",
+							log.Uint64("offer_id", ev.Offer.ID),
+							log.Err(err),
+						)
+					}
+				}
 			}
 		}
 	}
 }
 
-func (s *Daemon) onAppLaunched(ctx context.Context, appID uint32) {
-	s.mu.Lock()
-	s.currentAppID = appID
-	s.mu.Unlock()
+func (d *Daemon) onAppLaunched(ctx context.Context, appID uint32) {
+	d.mu.Lock()
+	d.currentAppID = appID
+	d.mu.Unlock()
 
-	s.logger.Info("Detected game launched", log.Uint32("appid", appID))
+	d.logger.Info("Detected game launched", log.Uint32("appid", appID))
 
-	if driver, ok := s.registry.Get(appID); ok {
-		s.logger.Info("Initializing game coordinator session for auto-launched game", log.Uint32("appid", appID))
+	if driver, ok := d.registry.Get(appID); ok {
+		d.logger.Info("Initializing game coordinator session for auto-launched game", log.Uint32("appid", appID))
 
 		if err := driver.OnStartGC(ctx); err != nil {
-			s.logger.Error("GC startup failed on driver", log.Uint32("appid", appID), log.Err(err))
+			d.logger.Error("GC startup failed on driver", log.Uint32("appid", appID), log.Err(err))
 		}
 	}
 }
 
-func (s *Daemon) onAppQuit(ctx context.Context, appID uint32) {
-	s.mu.Lock()
-	if s.currentAppID == appID {
-		s.currentAppID = 0
+func (d *Daemon) onAppQuit(ctx context.Context, appID uint32) {
+	d.mu.Lock()
+	if d.currentAppID == appID {
+		d.currentAppID = 0
 	}
 
-	s.mu.Unlock()
+	d.mu.Unlock()
 
-	s.logger.Info("Detected game quit", log.Uint32("appid", appID))
+	d.logger.Info("Detected game quit", log.Uint32("appid", appID))
 
-	if driver, ok := s.registry.Get(appID); ok {
-		s.logger.Info("Stopping game coordinator session for quit game", log.Uint32("appid", appID))
+	if driver, ok := d.registry.Get(appID); ok {
+		d.logger.Info("Stopping game coordinator session for quit game", log.Uint32("appid", appID))
 
 		_ = driver.OnStopGC(ctx)
 	}
+}
+
+// watchConnection periodically monitors the Steam connection health.
+// The library (g-man) handles reconnection automatically; this goroutine only
+// performs GC/game cleanup when a persistent drop is detected so that
+// LoggedOnEvent can resume everything cleanly after the library reconnects.
+func (d *Daemon) watchConnection(ctx context.Context) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.mu.RLock()
+			locked := d.isLocked
+			d.mu.RUnlock()
+
+			if locked {
+				continue
+			}
+
+			if d.isConnectionHealthy() {
+				continue
+			}
+
+			// Connection looks unhealthy — wait to rule out a transient network flap.
+			// The library is already reconnecting; we only need to clean up GC state.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+
+			if d.isConnectionHealthy() {
+				continue
+			}
+
+			d.logger.Warn("Watchdog: Steam connection is unhealthy, cleaning up GC state")
+
+			d.mu.RLock()
+			activeApp := d.currentAppID
+			d.mu.RUnlock()
+
+			if activeApp != 0 {
+				if driver, ok := d.registry.Get(activeApp); ok {
+					d.logger.Info(
+						"Stopping GC session due to watchdog detected drop",
+						log.Uint32("appid", activeApp),
+					)
+
+					_ = driver.OnStopGC(ctx)
+				}
+
+				_ = d.apps.StopPlaying(ctx)
+
+				d.mu.Lock()
+				d.currentAppID = 0
+				d.mu.Unlock()
+			}
+		}
+	}
+}
+
+// isConnectionHealthy reports whether the Steam socket is connected and the session is authenticated.
+func (d *Daemon) isConnectionHealthy() bool {
+	sock := d.client.Socket()
+	if sock == nil {
+		return false
+	}
+
+	if !sock.IsConnected() {
+		return false
+	}
+
+	session := sock.Session()
+	if session == nil {
+		return false
+	}
+
+	return session.IsAuthenticated()
 }

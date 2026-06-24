@@ -28,8 +28,8 @@ import (
 )
 
 // ExecRequest executes a generic request to Steam (Community, Unified, or WebAPI)
-func (s *Daemon) ExecRequest(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
-	s.logger.Info("Exec request",
+func (d *Daemon) ExecRequest(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
+	d.logger.Info("Exec request",
 		log.String("type", req.GetType().String()),
 		log.String("interface", req.GetInterface()),
 		log.String("action", req.GetAction()),
@@ -38,11 +38,11 @@ func (s *Daemon) ExecRequest(ctx context.Context, req *pb.ExecRequestRequest) (*
 
 	switch req.GetType() {
 	case pb.RequestType_REQUEST_TYPE_COMMUNITY:
-		return s.execCommunity(ctx, req)
+		return d.execCommunity(ctx, req)
 	case pb.RequestType_REQUEST_TYPE_UNIFIED:
-		return s.execUnified(ctx, req)
+		return d.execUnified(ctx, req)
 	case pb.RequestType_REQUEST_TYPE_WEBAPI:
-		return s.execWebAPI(ctx, req)
+		return d.execWebAPI(ctx, req)
 	case pb.RequestType_REQUEST_TYPE_UNSPECIFIED:
 		return nil, errors.New("unspecified request type")
 	default:
@@ -50,8 +50,8 @@ func (s *Daemon) ExecRequest(ctx context.Context, req *pb.ExecRequestRequest) (*
 	}
 }
 
-func (s *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
-	comm := s.client.Community()
+func (d *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
+	comm := d.client.Community()
 	if comm == nil {
 		return nil, errors.New("steam community client not authenticated or initialized")
 	}
@@ -141,7 +141,7 @@ func (s *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) 
 	}, nil
 }
 
-func (s *Daemon) execUnified(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
+func (d *Daemon) execUnified(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
 	iface := req.GetInterface()
 	action := req.GetAction()
 
@@ -199,7 +199,7 @@ func (s *Daemon) execUnified(ctx context.Context, req *pb.ExecRequestRequest) (*
 		return nil, fmt.Errorf("failed to create unified request: %w", err)
 	}
 
-	resp, err := s.client.Do(ctx, unifiedReq)
+	resp, err := d.client.Do(ctx, unifiedReq)
 	if err != nil {
 		return nil, fmt.Errorf("unified request execution failed: %w", err)
 	}
@@ -254,7 +254,7 @@ func (s *Daemon) execUnified(ctx context.Context, req *pb.ExecRequestRequest) (*
 	}, nil
 }
 
-func (s *Daemon) execWebAPI(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
+func (d *Daemon) execWebAPI(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
 	iface := req.GetInterface()
 	action := req.GetAction()
 
@@ -279,7 +279,7 @@ func (s *Daemon) execWebAPI(ctx context.Context, req *pb.ExecRequestRequest) (*p
 		webapiReq.WithParams(params)
 	}
 
-	resp, err := s.client.Do(ctx, webapiReq)
+	resp, err := d.client.Do(ctx, webapiReq)
 	if err != nil {
 		return nil, fmt.Errorf("webapi request execution failed: %w", err)
 	}

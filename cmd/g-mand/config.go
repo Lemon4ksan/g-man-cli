@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/lemon4ksan/g-man/pkg/crypto"
+	"github.com/lemon4ksan/miyako/generic"
 
 	guardcrypto "github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 )
@@ -156,28 +157,13 @@ func loadEnvConfig() (Config, error) {
 				)
 			}
 
-			if username == "" {
-				username = ma.AccountName
-			}
-
-			if sharedSecret == "" {
-				sharedSecret = ma.SharedSecret
-			}
-
-			if identitySecret == "" {
-				identitySecret = ma.IdentitySecret
-			}
-
-			if refreshToken == "" {
-				refreshToken = ma.Tokens.RefreshToken
-			}
+			username = generic.Coalesce(username, ma.AccountName)
+			sharedSecret = generic.Coalesce(ma.SharedSecret, sharedSecret)
+			identitySecret = generic.Coalesce(ma.IdentitySecret, identitySecret)
+			refreshToken = generic.Coalesce(ma.Tokens.RefreshToken, refreshToken)
 
 			if deviceID == "" {
-				steamID := ma.SteamID
-				if steamID == "" {
-					steamID = ma.Session.SteamID
-				}
-
+				steamID := generic.Coalesce(ma.SteamID, ma.Session.SteamID)
 				deviceID = getOrGenerateDeviceID(ma.DeviceID, steamID, refreshToken)
 			}
 		}

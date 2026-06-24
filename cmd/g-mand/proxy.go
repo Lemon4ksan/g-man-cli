@@ -15,7 +15,6 @@ import (
 	"github.com/lemon4ksan/aoni/profiles/chrome"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
-	"github.com/lemon4ksan/g-man/pkg/steam/httpc"
 	"github.com/lemon4ksan/miyako/generic"
 )
 
@@ -34,7 +33,7 @@ func setupProxyConfig(cfg Config, clientCfg *steam.Config, logger log.Logger) er
 	)
 
 	if cfg.RestLogs {
-		middleware = append(middleware, httpc.LoggingMiddleware(logger))
+		middleware = append(middleware, log.LoggingMiddleware(logger))
 	}
 
 	if len(cfg.ProxiesWeb) > 0 {
@@ -79,7 +78,7 @@ func setupProxyConfig(cfg Config, clientCfg *steam.Config, logger log.Logger) er
 				return fmt.Errorf("failed to initialize proxy rotator: %w", err)
 			}
 
-			stickyRotator := rotator.WithStickySessions(httpc.SteamStickyKey)
+			stickyRotator := rotator.WithStickySessions(aoni.StickyKeyFromCookie("sessionid"))
 
 			retryMiddleware := aoni.RetryMiddleware(aoni.RetryOptions{
 				MaxRetries: 3,
@@ -99,7 +98,6 @@ func setupProxyConfig(cfg Config, clientCfg *steam.Config, logger log.Logger) er
 	if cfg.CircuitBreakerEnabled {
 		cb := aoni.NewCircuitBreaker(aoni.CircuitBreakerConfig{
 			FailureThreshold: 5,
-			SuccessThreshold: 2,
 			Cooldown:         30 * time.Second,
 		})
 
