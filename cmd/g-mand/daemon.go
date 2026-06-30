@@ -6,9 +6,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,7 +23,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/behavior"
 	"github.com/lemon4ksan/g-man/pkg/behavior/achievements"
 	"github.com/lemon4ksan/g-man/pkg/behavior/guard"
-	corecrypto "github.com/lemon4ksan/g-man/pkg/crypto"
+	sessionbehavior "github.com/lemon4ksan/g-man/pkg/behavior/session"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
@@ -39,6 +36,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/apps"
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/directory"
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/gc"
+	"github.com/lemon4ksan/g-man/pkg/steam/sys/notifications"
 	"github.com/lemon4ksan/g-man/pkg/storage"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
 	"github.com/lemon4ksan/miyako/bus"
@@ -46,6 +44,7 @@ import (
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
 	gman_crypto "github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
+	"github.com/lemon4ksan/g-man-cli/pkg/shared"
 	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
@@ -64,7 +63,7 @@ type Daemon struct {
 	logger       log.Logger
 	client       *steam.Client
 	apps         *apps.Apps
-	gc           *gc.Coordinator
+	gcCoord      *gc.Coordinator
 	tf2          *tf2.TF2
 	schemaMgr    *schema.Manager
 	registry     *game.Registry
@@ -95,10 +94,10 @@ func NewDaemon(
 	shutdownFunc context.CancelFunc,
 ) (*Daemon, error) {
 	clientCfg := steam.DefaultConfig()
-	clientCfg.Storage = store
 	clientCfg.PersonaState = enums.EPersonaState(cfg.PersonaState)
 
-	if err := setupProxyConfig(cfg, &clientCfg, logger); err != nil {
+	rest, err := setupProxy(cfg, &clientCfg, logger)
+	if err != nil {
 		return nil, err
 	}
 
@@ -120,8 +119,11 @@ func NewDaemon(
 	logger = logger.With(log.Module("daemon"))
 
 	opts := []steam.Option{
+		steam.WithStorage(store),
 		steam.WithLogger(logger),
+		steam.WithREST(rest),
 		chat.WithModule(),
+		notifications.WithModule(),
 		friends.WithModule(),
 		account.WithModule(),
 		apps.WithModule(),
@@ -166,7 +168,7 @@ func NewDaemon(
 		logger:       logger,
 		client:       client,
 		apps:         appsMod,
-		gc:           gcMod,
+		gcCoord:      gcMod,
 		tf2:          tf2Mod,
 		schemaMgr:    schemaMod,
 		registry:     registry,
@@ -197,167 +199,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 			d.logger.Info("Decrypting configuration variables...")
 
 			if d.cfg.MaFilePath != "" && d.cfg.MaFileEncrypted {
-				d.logger.Info("Decrypting maFile...", log.String("path", d.cfg.MaFilePath))
-
-				fileData, err := os.ReadFile(d.cfg.MaFilePath)
-				if err != nil {
-					req.resChan <- fmt.Errorf("failed to read maFile: %w", err)
-					continue
-				}
-
-				decrypted, err := gman_crypto.DecryptData(fileData, req.passphrase)
-				if err != nil {
-					req.resChan <- fmt.Errorf("failed to decrypt maFile: %w", err)
-					continue
-				}
-
-				type maFile struct {
-					SharedSecret   string `json:"shared_secret"`
-					IdentitySecret string `json:"identity_secret"`
-					DeviceID       string `json:"device_id"`
-					AccountName    string `json:"account_name"`
-					SteamID        string `json:"steam_id"`
-					Tokens         struct {
-						RefreshToken string `json:"refresh_token"`
-					} `json:"tokens"`
-					Session struct {
-						SteamID string `json:"SteamID"`
-					} `json:"Session"`
-				}
-
-				var ma maFile
-				if err := json.Unmarshal(decrypted, &ma); err != nil {
-					req.resChan <- fmt.Errorf("failed to parse decrypted maFile JSON: %w", err)
-					continue
-				}
-
-				if ma.SharedSecret == "" || ma.IdentitySecret == "" {
-					req.resChan <- errors.New("invalid maFile: missing shared_secret or identity_secret")
-					continue
-				}
-
-				steamID := ma.SteamID
-				if steamID == "" {
-					steamID = ma.Session.SteamID
-				}
-
-				var devID string
-				if ma.DeviceID != "" {
-					devID = ma.DeviceID
-				} else if steamID != "" {
-					if id, err := strconv.ParseUint(steamID, 10, 64); err == nil && id > 0 {
-						devID = corecrypto.GetDeviceID(id)
-					}
-				}
-
-				if devID == "" {
-					var r [16]byte
-
-					_, _ = rand.Read(r[:])
-					sum := hex.EncodeToString(r[:])
-					devID = fmt.Sprintf("android:%s-%s-%s-%s-%s",
-						sum[:8], sum[8:12], sum[12:16], sum[16:20], sum[20:32],
-					)
-				}
-
-				d.mu.Lock()
-				d.cfg.SharedSecret = ma.SharedSecret
-				d.cfg.IdentitySecret = ma.IdentitySecret
-				d.cfg.DeviceID = devID
-
-				if ma.AccountName != "" && d.cfg.Username == "" {
-					d.cfg.Username = ma.AccountName
-				}
-
-				if ma.Tokens.RefreshToken != "" && d.cfg.RefreshToken == "" {
-					d.cfg.RefreshToken = ma.Tokens.RefreshToken
-				}
-
-				d.isLocked = false
-				d.mu.Unlock()
-
-				if err := d.configureGuardian(
-					ma.SharedSecret,
-					ma.IdentitySecret,
-					devID,
-					d.cfg.Username,
-					d.cfg.RefreshToken,
-				); err != nil {
+				if err := d.handleMaFileDecryption(req.passphrase); err != nil {
 					req.resChan <- err
-
-					d.mu.Lock()
-					d.isLocked = true
-					d.mu.Unlock()
-
 					continue
 				}
-
-				d.logger.Info("Configuration successfully loaded from encrypted maFile and guardian configured!")
 
 				req.resChan <- nil
 
 				continue
 			}
 
-			decrypt := func(val string) (string, error) {
-				if gman_crypto.IsEncryptedString(val) {
-					return gman_crypto.DecryptString(val, req.passphrase)
-				}
-
-				return val, nil
-			}
-
-			decryptedPass, err := decrypt(d.cfg.Password)
-			if err != nil {
-				req.resChan <- fmt.Errorf("failed to decrypt password: %w", err)
-				continue
-			}
-
-			decryptedRefresh, err := decrypt(d.cfg.RefreshToken)
-			if err != nil {
-				req.resChan <- fmt.Errorf("failed to decrypt refresh token: %w", err)
-				continue
-			}
-
-			decryptedShared, err := decrypt(d.cfg.SharedSecret)
-			if err != nil {
-				req.resChan <- fmt.Errorf("failed to decrypt shared secret: %w", err)
-				continue
-			}
-
-			decryptedIdentity, err := decrypt(d.cfg.IdentitySecret)
-			if err != nil {
-				req.resChan <- fmt.Errorf("failed to decrypt identity secret: %w", err)
-				continue
-			}
-
-			d.mu.Lock()
-			d.cfg.Password = decryptedPass
-			d.cfg.RefreshToken = decryptedRefresh
-			d.cfg.SharedSecret = decryptedShared
-			d.cfg.IdentitySecret = decryptedIdentity
-			d.isLocked = false
-			d.mu.Unlock()
-
-			if err := d.configureGuardian(
-				decryptedShared,
-				decryptedIdentity,
-				d.cfg.DeviceID,
-				d.cfg.Username,
-				decryptedRefresh,
-			); err != nil {
+			if err := d.decryptConfigValues(req.passphrase); err != nil {
 				req.resChan <- err
-
-				d.mu.Lock()
-				d.isLocked = true
-				d.mu.Unlock()
-
 				continue
 			}
 
-			d.logger.Info("Configuration successfully decrypted and guardian configured!")
-
-			req.resChan <- nil // signal success to the gRPC client
+			req.resChan <- nil
 		}
 	}
 
@@ -373,7 +230,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	go func() {
-		dir := directory.New(d.client.Service())
+		dir := directory.New(d.client)
 
 		servers, err := dir.GetCMListForConnect(ctx, directory.CMCfg{})
 		if err == nil && len(servers) > 0 {
@@ -400,28 +257,20 @@ func (d *Daemon) Run(ctx context.Context) error {
 		log.Float64("load", server.Load),
 	)
 
-	d.setupOrchestrator()
-
-	if err := d.orchestrator.Start(ctx); err != nil {
-		return fmt.Errorf("orchestrator start failed: %w", err)
-	}
-
 	// Subscribe to auth and apps events to stay in sync with auto-play status
 	d.sub = d.client.Bus().Subscribe(
 		&auth.LoggedOnEvent{},
-		&auth.LoggedOffEvent{},
 		&apps.AppLaunchedEvent{},
 		&apps.AppQuitEvent{},
 		&auth.SteamGuardRequiredEvent{},
 		&web.NewOfferEvent{},
+		&web.OfferChangedEvent{},
+		&web.PollSuccessEvent{},
+		&tf2.BackpackLoadedEvent{},
 	)
 
 	d.wg.Go(func() {
 		d.handleEvents(ctx)
-	})
-
-	d.wg.Go(func() {
-		d.watchConnection(ctx)
 	})
 
 	username := d.cfg.Username
@@ -444,11 +293,137 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("connect and login failed: %w", err)
 	}
 
-	if steamID := d.client.SteamID(); steamID != 0 {
+	if steamID := d.client.Session().SteamID(); steamID != 0 {
 		d.logger = d.logger.With(log.SteamID(steamID.Uint64()))
 	}
 
+	d.setupOrchestrator()
+
+	if err := d.orchestrator.Start(ctx); err != nil {
+		return fmt.Errorf("orchestrator start failed: %w", err)
+	}
+
 	d.logger.Info("Bot logged in and fully operational")
+
+	return nil
+}
+
+// handleMaFileDecryption decrypts an encrypted maFile, parses it, applies the
+// credentials to the daemon config, and configures the guardian.
+func (d *Daemon) handleMaFileDecryption(passphrase string) error {
+	d.logger.Info("Decrypting maFile...", log.String("path", d.cfg.MaFilePath))
+
+	fileData, err := os.ReadFile(d.cfg.MaFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read maFile: %w", err)
+	}
+
+	decrypted, err := gman_crypto.DecryptData(fileData, passphrase)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt maFile: %w", err)
+	}
+
+	ma, err := shared.ParseMaFile(decrypted)
+	if err != nil {
+		return fmt.Errorf("failed to parse decrypted maFile JSON: %w", err)
+	}
+
+	if err := shared.ValidateMaFile(ma); err != nil {
+		return err
+	}
+
+	steamID := shared.SteamIDFromMaFile(ma)
+	devID := shared.ResolveDeviceIDFromStr(ma.DeviceID, strconv.FormatUint(steamID, 10))
+
+	d.mu.Lock()
+	d.cfg.SharedSecret = ma.SharedSecret
+	d.cfg.IdentitySecret = ma.IdentitySecret
+	d.cfg.DeviceID = devID
+
+	if ma.AccountName != "" && d.cfg.Username == "" {
+		d.cfg.Username = ma.AccountName
+	}
+
+	if ma.Tokens.RefreshToken != "" && d.cfg.RefreshToken == "" {
+		d.cfg.RefreshToken = ma.Tokens.RefreshToken
+	}
+
+	d.isLocked = false
+	d.mu.Unlock()
+
+	if err := d.configureGuardian(
+		ma.SharedSecret,
+		ma.IdentitySecret,
+		devID,
+		d.cfg.Username,
+		d.cfg.RefreshToken,
+	); err != nil {
+		d.mu.Lock()
+		d.isLocked = true
+		d.mu.Unlock()
+
+		return err
+	}
+
+	d.logger.Info("Configuration successfully loaded from encrypted maFile and guardian configured!")
+
+	return nil
+}
+
+// decryptConfigValues decrypts individual encrypted config fields using the passphrase
+// and configures the guardian with the decrypted values.
+func (d *Daemon) decryptConfigValues(passphrase string) error {
+	decrypt := func(val string) (string, error) {
+		if gman_crypto.IsEncryptedString(val) {
+			return gman_crypto.DecryptString(val, passphrase)
+		}
+
+		return val, nil
+	}
+
+	decryptedPass, err := decrypt(d.cfg.Password)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt password: %w", err)
+	}
+
+	decryptedRefresh, err := decrypt(d.cfg.RefreshToken)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt refresh token: %w", err)
+	}
+
+	decryptedShared, err := decrypt(d.cfg.SharedSecret)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt shared secret: %w", err)
+	}
+
+	decryptedIdentity, err := decrypt(d.cfg.IdentitySecret)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt identity secret: %w", err)
+	}
+
+	d.mu.Lock()
+	d.cfg.Password = decryptedPass
+	d.cfg.RefreshToken = decryptedRefresh
+	d.cfg.SharedSecret = decryptedShared
+	d.cfg.IdentitySecret = decryptedIdentity
+	d.isLocked = false
+	d.mu.Unlock()
+
+	if err := d.configureGuardian(
+		decryptedShared,
+		decryptedIdentity,
+		d.cfg.DeviceID,
+		d.cfg.Username,
+		decryptedRefresh,
+	); err != nil {
+		d.mu.Lock()
+		d.isLocked = true
+		d.mu.Unlock()
+
+		return err
+	}
+
+	d.logger.Info("Configuration successfully decrypted and guardian configured!")
 
 	return nil
 }
@@ -537,6 +512,8 @@ func (d *Daemon) Close() {
 
 func (d *Daemon) setupOrchestrator() {
 	d.orchestrator = behavior.NewOrchestrator(d.client.Bus(), d.logger)
+	sessionbehavior.KeepAlive(d.orchestrator, d.client.Session(), sessionbehavior.Config{})
+
 	provider := &dynamicGuardProvider{client: d.client}
 
 	guardBehaviorCfg := guard.Config{
@@ -561,7 +538,7 @@ func (d *Daemon) discoverCMServer(ctx context.Context) (socket.CMServer, error) 
 	defer cancel()
 
 	d.logger.Info("Discovering optimal Steam Connection Manager server...")
-	dir := directory.New(d.client.Service())
+	dir := directory.New(d.client)
 
 	return dir.GetOptimalCMServer(dirCtx)
 }
@@ -569,7 +546,7 @@ func (d *Daemon) discoverCMServer(ctx context.Context) (socket.CMServer, error) 
 // GetStatus returns the daemon state, connection status, memory usage, and active game.
 func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.GetStatusResponse, error) {
 	connected := d.client.Socket().IsConnected()
-	steamID := d.client.SteamID().String()
+	steamID := d.client.Session().SteamID().String()
 
 	d.mu.RLock()
 	currentApp := d.currentAppID

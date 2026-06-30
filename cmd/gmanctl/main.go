@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -13,8 +14,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
+	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
+	"github.com/lemon4ksan/g-man-tf2/pkg/sku"
 	"github.com/lemon4ksan/miyako/generic"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -59,7 +63,7 @@ func main() {
 	if command == "events" {
 		ctx, cancel = context.WithCancel(context.Background())
 	} else {
-		ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Minute)
 	}
 
 	defer cancel()
@@ -464,6 +468,23 @@ func handleExec(
 	if resp.GetDetails() != "" {
 		fmt.Println(resp.GetDetails())
 	}
+
+	if len(resp.GetItems()) > 0 {
+		var sch *schema.Schema
+
+		schemaResp, err := client.ExecAction(ctx, &pb.ExecActionRequest{
+			Appid:  appID,
+			Action: "schema",
+		})
+		if err == nil {
+			var raw schema.Raw
+			if json.Unmarshal([]byte(schemaResp.GetDetails()), &raw) == nil {
+				sch = schema.New(&raw)
+			}
+		}
+
+		printItemsTable(resp.GetItems(), sch)
+	}
 }
 
 func handleStreamEvents(ctx context.Context, client pb.DaemonServiceClient) {
@@ -522,4 +543,125 @@ func handleUpdatePrices(ctx context.Context, client pb.DaemonServiceClient, pric
 	} else {
 		fmt.Printf("%sFailed: %s%s\n", ColorRed, resp.GetMessage(), ColorReset)
 	}
+}
+
+func printItemsTable(items []*pb.Item, s *schema.Schema) {
+	fmt.Printf("\n%s%s=== BACKPACK INVENTORY (%d items) ===%s\n\n", ColorBold, ColorCyan, len(items), ColorReset)
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', tabwriter.Debug)
+	fmt.Fprintln(w, "Asset ID\tDef Index\tName\tQuality\tQuantity\tTradable\tCraftable\tSKU")
+	fmt.Fprintln(w, "--------\t---------\t----\t-------\t--------\t--------\t---------\t---")
+
+	for _, item := range items {
+		tradStr := "Yes"
+		if !item.GetIsTradable() {
+			tradStr = "No"
+		}
+
+		craftStr := "Yes"
+		if !item.GetIsCraftable() {
+			craftStr = "No"
+		}
+
+		skuStr := item.GetAttributes()["sku"]
+		if skuStr == "" {
+			skuStr = "N/A"
+		}
+
+		itemName := resolveItemName(skuStr, int(item.GetDefIndex()), item.GetAttributes(), false, s)
+		qualityStr := resolveQuality(item.GetQuality(), s, nil)
+
+		fmt.Fprintf(w, "%d\t%d\t%s\t%s\t%d\t%s\t%s\t%s\n",
+			item.GetAssetId(),
+			item.GetDefIndex(),
+			itemName,
+			qualityStr,
+			item.GetQuantity(),
+			tradStr,
+			craftStr,
+			skuStr,
+		)
+	}
+
+	if err := w.Flush(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	}
+}
+
+func resolveQuality(quality uint32, schema *schema.Schema, fallbackQualityName map[uint32]string) string {
+	if schema != nil {
+		if qName := schema.QualityByID(int(quality)); qName != "" {
+			return qName
+		}
+	}
+
+	if qName, ok := fallbackQualityName[quality]; ok {
+		return qName
+	}
+
+	return strconv.FormatUint(uint64(quality), 10)
+}
+
+func resolveItemName(
+	skuStr string,
+	defIndex int,
+	attributes map[string]string,
+	simple bool,
+	schema *schema.Schema,
+) string {
+	if schema == nil || skuStr == "" || skuStr == "N/A" {
+		return "Unknown Item"
+	}
+
+	var customName string
+	if attributes != nil {
+		customName = attributes["custom_name"]
+	}
+
+	skuItem, err := sku.FromString(skuStr)
+	if err != nil {
+		if customName != "" {
+			return fmt.Sprintf("''%s''", customName)
+		}
+
+		if item := schema.ItemByDef(defIndex); item != nil {
+			return item.ItemName
+		}
+
+		return "Unknown Item"
+	}
+
+	if attributes != nil && !simple {
+		if pvStr, ok := attributes["part_values"]; ok && pvStr != "" {
+			skuItem.PartValues = make(map[int]int)
+			for pair := range strings.SplitSeq(pvStr, ",") {
+				parts := strings.Split(pair, ":")
+				if len(parts) == 2 {
+					k, _ := strconv.Atoi(parts[0])
+					v, _ := strconv.Atoi(parts[1])
+					skuItem.PartValues[k] = v
+				}
+			}
+		}
+	}
+
+	name := schema.ItemName(skuItem, true, true, false)
+	if name == "" {
+		if customName != "" {
+			return fmt.Sprintf("''%s''", customName)
+		}
+
+		sch := schema.ItemByDef(defIndex)
+		if sch != nil {
+			return sch.ItemName
+		}
+
+		return "Unknown Item"
+	}
+
+	if customName != "" {
+		return fmt.Sprintf("''%s'' (%s)", customName, name)
+	}
+
+	return name
 }

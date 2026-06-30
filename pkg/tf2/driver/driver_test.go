@@ -18,6 +18,7 @@ import (
 	"github.com/lemon4ksan/aoni"
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
+	"github.com/lemon4ksan/g-man-tf2/pkg/services/pricedb"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
@@ -104,6 +105,10 @@ func (m *mockCommunityRequester) SessionID(baseURL string) string {
 	return "mock-session-id"
 }
 
+func (m *mockCommunityRequester) GetOrRegisterAPIKey(ctx context.Context, domain string) (string, error) {
+	return "", nil
+}
+
 type mockRestRequester struct {
 	requestFunc func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error)
 }
@@ -168,7 +173,6 @@ func setupDriver(
 	busObj := bus.New()
 
 	cfg := steam.DefaultConfig()
-	cfg.Bus = busObj
 	cfg.DisableSocket = true
 
 	tf2Mod := tf2.New()
@@ -177,6 +181,7 @@ func setupDriver(
 	webMod := web.New(web.DefaultConfig())
 
 	client, err := steam.NewClient(cfg,
+		steam.WithBus(busObj),
 		steam.WithLogger(logger),
 		steam.WithModule(tf2Mod),
 		steam.WithModule(bpMod),
@@ -867,12 +872,6 @@ func TestDriver_ExecuteAction(t *testing.T) {
 
 	// 18e. "backpack-value"
 	// Mock HTTP requests to pricedb
-	oldTransport := http.DefaultClient.Transport
-	defer func() { http.DefaultClient.Transport = oldTransport }()
-
-	oldDefaultTransport := http.DefaultTransport
-	defer func() { http.DefaultTransport = oldDefaultTransport }()
-
 	var rt http.RoundTripper = &mockRounder{
 		roundTrip: func(req *http.Request) (*http.Response, error) {
 			body := `[
@@ -888,8 +887,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 		},
 	}
 
-	http.DefaultClient.Transport = rt
-	http.DefaultTransport = rt
+	d.SetPDBClient(pricedb.NewClient(aoni.NewClient(&http.Client{Transport: rt})))
 
 	// Seed item cache
 	itemsMap[123] = &tf2.Item{ID: 123, DefIndex: 5021, Quality: 6, Quantity: 1, IsTradable: true, SKU: "5021;6"}
@@ -966,14 +964,14 @@ func TestDriver_ItemDetails_ItemFound(t *testing.T) {
 	// Add an item to the cache
 	soCache := tf2Mod.Cache()
 	item := &tf2.Item{
-		ID:          100,
-		DefIndex:    5000,
-		Quality:     6,
-		Quantity:    1,
-		IsTradable:  true,
-		IsCraftable: true,
-		SKU:         "5000;6",
-		Paint:       0xFF69B4,
+		ID:           100,
+		DefIndex:     5000,
+		Quality:      6,
+		Quantity:     1,
+		IsTradable:   true,
+		IsCraftable:  true,
+		SKU:          "5000;6",
+		PaintPrimary: 0xFF69B4,
 	}
 	setSOCacheItems(soCache, []*tf2.Item{item})
 
@@ -1060,6 +1058,19 @@ func TestDriver_BackpackValue_Empty(t *testing.T) {
 
 func TestDriver_BackpackValue_WithItems(t *testing.T) {
 	d, tf2Mod, _, _, _, _, _, _ := setupDriver(t)
+
+	var rt http.RoundTripper = &mockRounder{
+		roundTrip: func(req *http.Request) (*http.Response, error) {
+			body := `[]`
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Header:     make(http.Header),
+			}, nil
+		},
+	}
+	d.SetPDBClient(pricedb.NewClient(aoni.NewClient(&http.Client{Transport: rt})))
 
 	soCache := tf2Mod.Cache()
 	setSOCacheItems(soCache, []*tf2.Item{
@@ -1212,32 +1223,50 @@ func TestDriver_HealthCheck(t *testing.T) {
 func TestDriver_PriceCheck_SKUFound(t *testing.T) {
 	d, _, _, _, _, _, _, _ := setupDriver(t)
 
-	// Price-check uses its own pricedb client; in CI this hits the real API.
-	// We test that the action dispatches correctly and handles the response.
+	var rt http.RoundTripper = &mockRounder{
+		roundTrip: func(req *http.Request) (*http.Response, error) {
+			body := `[
+				{"sku": "5021;6", "buy": {"keys": 0, "metal": 72.5}, "sell": {"keys": 0, "metal": 73.0}, "source": "pricedb"}
+			]`
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Header:     make(http.Header),
+			}, nil
+		},
+	}
+	d.SetPDBClient(pricedb.NewClient(aoni.NewClient(&http.Client{Transport: rt})))
+
 	result, err := d.ExecuteAction(context.Background(), "price-check", map[string]string{
 		"sku": "5021;6",
 	})
 
-	// May succeed (if API reachable) or fail (network error) — both are valid
-	if err != nil {
-		assert.Contains(t, err.Error(), "fetch price")
-	} else {
-		assert.Contains(t, result, "PRICE CHECK: 5021;6")
-	}
+	require.NoError(t, err)
+	assert.Contains(t, result, "PRICE CHECK: 5021;6")
 }
 
 func TestDriver_PriceCheck_SKUNotFound(t *testing.T) {
 	d, _, _, _, _, _, _, _ := setupDriver(t)
 
-	// Price-check uses its own pricedb client; test that action dispatches correctly
+	var rt http.RoundTripper = &mockRounder{
+		roundTrip: func(req *http.Request) (*http.Response, error) {
+			body := `[]`
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Header:     make(http.Header),
+			}, nil
+		},
+	}
+	d.SetPDBClient(pricedb.NewClient(aoni.NewClient(&http.Client{Transport: rt})))
+
 	result, err := d.ExecuteAction(context.Background(), "price-check", map[string]string{
 		"sku": "99999;6",
 	})
-	if err != nil {
-		assert.Contains(t, err.Error(), "fetch price")
-	} else {
-		assert.Contains(t, result, "No price data found")
-	}
+	require.NoError(t, err)
+	assert.Contains(t, result, "No price data found")
 }
 
 func TestDriver_PriceCheck_MissingParam(t *testing.T) {

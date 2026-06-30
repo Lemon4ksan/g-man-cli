@@ -15,6 +15,7 @@ import (
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
 	"github.com/lemon4ksan/g-man-tf2/pkg/sku"
+	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/steam/id"
 	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
@@ -194,85 +195,24 @@ func (d *Driver) actionActiveSentOffers(ctx context.Context, params map[string]s
 }
 
 func (d *Driver) actionActiveOffersRich(ctx context.Context, params map[string]string) (string, error) {
-	webMod := web.From(d.client)
-	if webMod == nil {
-		return "", errors.New("web module not registered or loaded")
-	}
-
-	pollData := webMod.GetPollData()
-
-	var activeOffers []*trading.TradeOffer
-
-	for offerID, state := range pollData.Received {
-		if state == trading.OfferStateActive || state == trading.OfferStateCreatedNeedsConfirmation {
-			offer, err := webMod.GetOffer(ctx, offerID)
-			if err == nil && offer != nil {
-				activeOffers = append(activeOffers, offer)
-			}
-		}
-	}
-
-	data, err := d.resolveTradeOffers(activeOffers)
-	if err != nil {
-		return "", err
-	}
-
-	return string(data), nil
+	return d.collectOffersRich(ctx, false, true)
 }
 
 func (d *Driver) actionActiveSentOffersRich(ctx context.Context, params map[string]string) (string, error) {
-	webMod := web.From(d.client)
-	if webMod == nil {
-		return "", errors.New("web module not registered or loaded")
-	}
-
-	pollData := webMod.GetPollData()
-
-	var activeSentOffers []*trading.TradeOffer
-
-	for offerID, state := range pollData.Sent {
-		if state == trading.OfferStateActive || state == trading.OfferStateCreatedNeedsConfirmation {
-			offer, err := webMod.GetOffer(ctx, offerID)
-			if err == nil && offer != nil {
-				activeSentOffers = append(activeSentOffers, offer)
-			}
-		}
-	}
-
-	data, err := d.resolveTradeOffers(activeSentOffers)
-	if err != nil {
-		return "", err
-	}
-
-	return string(data), nil
+	return d.collectOffersRich(ctx, true, true)
 }
 
 func (d *Driver) actionAllOffersRich(ctx context.Context, params map[string]string) (string, error) {
-	webMod := web.From(d.client)
-	if webMod == nil {
-		return "", errors.New("web module not registered or loaded")
-	}
-
-	pollData := webMod.GetPollData()
-
-	var allOffers []*trading.TradeOffer
-
-	for offerID := range pollData.Received {
-		offer, err := webMod.GetOffer(ctx, offerID)
-		if err == nil && offer != nil {
-			allOffers = append(allOffers, offer)
-		}
-	}
-
-	data, err := d.resolveTradeOffers(allOffers)
-	if err != nil {
-		return "", err
-	}
-
-	return string(data), nil
+	return d.collectOffersRich(ctx, false, false)
 }
 
 func (d *Driver) actionAllSentOffersRich(ctx context.Context, params map[string]string) (string, error) {
+	return d.collectOffersRich(ctx, true, false)
+}
+
+// collectOffersRich gathers trade offers from poll data, optionally filtering
+// by active state. sent=true uses the Sent map, false uses Received.
+func (d *Driver) collectOffersRich(ctx context.Context, sent, activeOnly bool) (string, error) {
 	webMod := web.From(d.client)
 	if webMod == nil {
 		return "", errors.New("web module not registered or loaded")
@@ -280,16 +220,25 @@ func (d *Driver) actionAllSentOffersRich(ctx context.Context, params map[string]
 
 	pollData := webMod.GetPollData()
 
-	var allSentOffers []*trading.TradeOffer
+	offerMap := pollData.Received
+	if sent {
+		offerMap = pollData.Sent
+	}
 
-	for offerID := range pollData.Sent {
+	var offers []*trading.TradeOffer
+
+	for offerID, state := range offerMap {
+		if activeOnly && state != trading.OfferStateActive && state != trading.OfferStateCreatedNeedsConfirmation {
+			continue
+		}
+
 		offer, err := webMod.GetOffer(ctx, offerID)
 		if err == nil && offer != nil {
-			allSentOffers = append(allSentOffers, offer)
+			offers = append(offers, offer)
 		}
 	}
 
-	data, err := d.resolveTradeOffers(allSentOffers)
+	data, err := d.resolveTradeOffers(offers)
 	if err != nil {
 		return "", err
 	}
@@ -387,36 +336,50 @@ func (d *Driver) actionGetPartnerInventory(ctx context.Context, params map[strin
 
 				// Serialize all TF2Item attributes to the map
 				for _, attr := range it.Attributes {
-					switch attr.Defindex {
-					case 134: // Unusual effect
+					switch uint32(attr.Defindex) { //nolint:gosec
+					case tf2.AttrCustomTextureLow:
+						attrs["152"] = fmt.Sprintf("%v", attr.Value)
+					case tf2.AttrUnusualEffect:
 						attrs["134"] = fmt.Sprintf("%v", attr.Value)
-					case 142: // Paint
+					case tf2.AttrPaintPrimary:
 						attrs["142"] = fmt.Sprintf("%v", attr.Value)
-					case 187: // Crate series
+					case tf2.AttrGifterAccountID:
+						attrs["186"] = fmt.Sprintf("%v", attr.Value)
+					case tf2.AttrPaintSecondary:
+						attrs["261"] = fmt.Sprintf("%v", attr.Value)
+					case tf2.AttrCrateSeries:
 						attrs["187"] = fmt.Sprintf("%v", attr.Value)
-					case 214: // Is elevated
+					case tf2.AttrKillEater:
 						attrs["214"] = fmt.Sprintf("%v", attr.Value)
-					case 229: // Craft number
+					case tf2.AttrCustomTextureHigh:
+						attrs["227"] = fmt.Sprintf("%v", attr.Value)
+					case tf2.AttrCrafterAccountID:
+						attrs["228"] = fmt.Sprintf("%v", attr.Value)
+					case tf2.AttrCraftNumber:
 						attrs["229"] = fmt.Sprintf("%v", attr.Value)
-					case 725: // Wear
+					case tf2.AttrWear:
 						attrs["725"] = fmt.Sprintf("%v", attr.Value)
-					case 834: // Paintkit
+					case tf2.AttrPaintkit:
 						attrs["834"] = fmt.Sprintf("%v", attr.Value)
-					case 866: // Paintkit seed lo
+					case tf2.AttrPaintkitSeedLo:
 						attrs["866"] = fmt.Sprintf("%v", attr.Value)
-					case 867: // Paintkit seed hi
+					case tf2.AttrPaintkitSeedHi:
 						attrs["867"] = fmt.Sprintf("%v", attr.Value)
-					case 2012: // Target
+					case tf2.AttrTarget:
 						attrs["2012"] = fmt.Sprintf("%v", attr.Value)
-					case 2013: // Eye effect / killstreaker
+					case tf2.AttrKillstreaker:
 						attrs["2013"] = fmt.Sprintf("%v", attr.Value)
-					case 2014: // Sheen
+					case tf2.AttrSheen:
 						attrs["2014"] = fmt.Sprintf("%v", attr.Value)
-					case 2025: // Killstreak tier
+					case tf2.AttrKillstreakTier:
 						attrs["2025"] = fmt.Sprintf("%v", attr.Value)
-					case 2027: // Australium
+					case tf2.AttrAustralium:
 						attrs["2027"] = fmt.Sprintf("%v", attr.Value)
-					case 2053: // Festivized
+					case tf2.AttrQuestLoanerIDLow:
+						attrs["2051"] = fmt.Sprintf("%v", attr.Value)
+					case tf2.AttrQuestLoanerIDHigh:
+						attrs["2052"] = fmt.Sprintf("%v", attr.Value)
+					case tf2.AttrFestivized:
 						attrs["2053"] = fmt.Sprintf("%v", attr.Value)
 					}
 				}
@@ -487,129 +450,67 @@ func (d *Driver) actionResolveVanityURL(ctx context.Context, params map[string]s
 	return partnerID.String(), nil
 }
 
-func (d *Driver) buildBackpackIndex() map[uint64]struct {
-	sku      string
-	defIndex string
-} {
-	tf2Mod, err := d.getTF2Module()
-	if err != nil {
-		return nil
-	}
-
-	idx := make(map[uint64]struct {
-		sku      string
-		defIndex string
-	})
-
-	for _, ri := range tf2Mod.Cache().GetItems() {
-		idx[ri.ID] = struct {
-			sku      string
-			defIndex string
-		}{
-			sku:      ri.SKU,
-			defIndex: strconv.FormatUint(uint64(ri.DefIndex), 10),
-		}
-	}
-
-	return idx
-}
-
 func (d *Driver) resolveTradeOffers(offers []*trading.TradeOffer) ([]byte, error) {
 	schemaMod := schema.From(d.client)
-
-	var s *schema.Schema
-	if schemaMod != nil {
-		s = schemaMod.Get()
+	if schemaMod == nil {
+		return nil, errors.New("schema module not registered in steam client")
 	}
 
-	bpIndex := d.buildBackpackIndex()
-
-	resolvedList := make([]ResolvedOffer, len(offers))
-	for i, offer := range offers {
-		ro := ResolvedOffer{
-			ID:             strconv.FormatUint(offer.ID, 10),
-			OtherSteamID:   offer.OtherSteamID.String(),
-			Message:        offer.Message,
-			State:          int(offer.State),
-			IsOurOffer:     offer.IsOurOffer,
-			ItemsToGive:    make([]ResolvedItem, len(offer.ItemsToGive)),
-			ItemsToReceive: make([]ResolvedItem, len(offer.ItemsToReceive)),
-			TimeCreated:    offer.TimeCreated,
-			TimeUpdated:    offer.TimeUpdated,
-		}
-
-		for j, it := range offer.ItemsToGive {
-			skuStr := ""
-			defIndex := "0"
-
-			if s != nil {
-				skuItem := s.ItemFromEconItem(it)
-				if skuItem != nil && skuItem.Defindex > 0 && skuItem.Defindex != 25000 {
-					skuStr = sku.FromObject(skuItem)
-					defIndex = strconv.Itoa(skuItem.Defindex)
-				}
-			}
-
-			if skuStr == "" {
-				if entry, ok := bpIndex[it.AssetID]; ok {
-					skuStr = entry.sku
-					defIndex = entry.defIndex
-				}
-			}
-
-			if skuStr == "" {
-				skuStr = it.MarketHashName
-			}
-
-			ro.ItemsToGive[j] = ResolvedItem{
-				AppID:          it.AppID,
-				ContextID:      strconv.FormatInt(it.ContextID, 10),
-				AssetID:        strconv.FormatUint(it.AssetID, 10),
-				ClassID:        strconv.FormatUint(it.ClassID, 10),
-				DefIndex:       defIndex,
-				InstanceID:     strconv.FormatUint(it.InstanceID, 10),
-				Amount:         strconv.FormatInt(it.Amount, 10),
-				MarketHashName: skuStr,
-			}
-		}
-
-		for j, it := range offer.ItemsToReceive {
-			skuStr := ""
-			defIndex := "0"
-
-			if s != nil {
-				skuItem := s.ItemFromEconItem(it)
-				if skuItem != nil && skuItem.Defindex > 0 && skuItem.Defindex != 25000 {
-					skuStr = sku.FromObject(skuItem)
-					defIndex = strconv.Itoa(skuItem.Defindex)
-				}
-			}
-
-			if skuStr == "" {
-				if entry, ok := bpIndex[it.AssetID]; ok {
-					skuStr = entry.sku
-					defIndex = entry.defIndex
-				}
-			}
-
-			if skuStr == "" {
-				skuStr = it.MarketHashName
-			}
-
-			ro.ItemsToReceive[j] = ResolvedItem{
-				AppID:          it.AppID,
-				ContextID:      strconv.FormatInt(it.ContextID, 10),
-				AssetID:        strconv.FormatUint(it.AssetID, 10),
-				ClassID:        strconv.FormatUint(it.ClassID, 10),
-				DefIndex:       defIndex,
-				InstanceID:     strconv.FormatUint(it.InstanceID, 10),
-				Amount:         strconv.FormatInt(it.Amount, 10),
-				MarketHashName: skuStr,
-			}
-		}
-
-		resolvedList[i] = ro
+	sch := schemaMod.Get()
+	if sch == nil {
+		return nil, errors.New("schema not loaded yet")
 	}
 
-	return json.Marshal(resolvedList)
+	type richItem struct {
+		AssetID        uint64 `json:"assetid"`
+		SKU            string `json:"sku"`
+		MarketHashName string `json:"market_hash_name"`
+	}
+
+	type richOffer struct {
+		ID           uint64     `json:"id"`
+		OtherSteamID string     `json:"other_steam_id"`
+		ItemsGive    []richItem `json:"items_to_give"`
+		ItemsReceive []richItem `json:"items_to_receive"`
+	}
+
+	richOffers := make([]richOffer, len(offers))
+	for i, o := range offers {
+		partnerSteamID := o.OtherSteamID
+		if partnerSteamID != 0 && partnerSteamID < id.FromAccountID(0) {
+			partnerSteamID = id.FromAccountID(uint32(partnerSteamID)) //nolint:gosec
+		}
+
+		rich := richOffer{
+			ID:           o.ID,
+			OtherSteamID: partnerSteamID.String(),
+			ItemsGive:    make([]richItem, len(o.ItemsToGive)),
+			ItemsReceive: make([]richItem, len(o.ItemsToReceive)),
+		}
+
+		for idx, it := range o.ItemsToGive {
+			rich.ItemsGive[idx] = richItem{
+				AssetID:        it.AssetID,
+				SKU:            it.SKU,
+				MarketHashName: it.MarketHashName,
+			}
+		}
+
+		for idx, it := range o.ItemsToReceive {
+			rich.ItemsReceive[idx] = richItem{
+				AssetID:        it.AssetID,
+				SKU:            it.SKU,
+				MarketHashName: it.MarketHashName,
+			}
+		}
+
+		richOffers[i] = rich
+	}
+
+	data, err := json.Marshal(richOffers)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
 }

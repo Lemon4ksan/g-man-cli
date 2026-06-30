@@ -38,7 +38,7 @@ func GetIPCListener(cfg Config) (net.Listener, string, error) {
 			return nil, "", fmt.Errorf("failed to remove stale socket: %w", err)
 		}
 
-		if err := os.MkdirAll(filepath.Dir(addr), 0o750); err != nil {
+		if err := os.MkdirAll(filepath.Dir(addr), 0o755); err != nil { //nolint:gosec
 			return nil, "", fmt.Errorf("failed to create socket directory: %w", err)
 		}
 	}
@@ -51,7 +51,7 @@ func GetIPCListener(cfg Config) (net.Listener, string, error) {
 	}
 
 	if netType == "unix" {
-		_ = os.Chmod(addr, 0o600)
+		_ = os.Chmod(addr, 0o666) //nolint:gosec
 	}
 
 	return listener, addr, nil

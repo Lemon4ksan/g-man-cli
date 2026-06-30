@@ -115,19 +115,19 @@ func (d *Driver) RespondToAll(ctx context.Context, accept bool) error {
 
 // QueryStatus queries the current two-factor status from Steam.
 func (d *Driver) QueryStatus(ctx context.Context) (*pbSteam.CTwoFactor_Status_Response, error) {
-	steamID := d.client.SteamID()
+	steamID := d.client.Session().SteamID()
 	if steamID.Uint64() == 0 {
 		return nil, errors.New("steam client is not logged in")
 	}
 
-	tfService := guard.NewTwoFactorService(d.client.Service())
+	tfService := guard.NewTwoFactorService(d.client)
 
 	return tfService.QueryStatus(ctx, steamID)
 }
 
 // RemoveAuthenticator removes/revokes the current authenticator using a revocation code.
 func (d *Driver) RemoveAuthenticator(ctx context.Context, revocationCode string) error {
-	tfService := guard.NewTwoFactorService(d.client.Service())
+	tfService := guard.NewTwoFactorService(d.client)
 
 	resp, err := tfService.RemoveAuthenticator(ctx, revocationCode)
 	if err != nil {
@@ -147,7 +147,7 @@ func (d *Driver) RemoveAuthenticator(ctx context.Context, revocationCode string)
 // TransferStart begins the authenticator transfer process.
 // It sends a challenge request to Steam, which triggers sending an SMS verification code to the registered phone.
 func (d *Driver) TransferStart(ctx context.Context) error {
-	tfService := guard.NewTwoFactorService(d.client.Service())
+	tfService := guard.NewTwoFactorService(d.client)
 	_, err := tfService.RemoveAuthenticatorViaChallengeStart(ctx)
 	return err
 }
@@ -158,12 +158,12 @@ func (d *Driver) TransferFinish(
 	ctx context.Context,
 	smsCode string,
 ) (*pbSteam.CRemoveAuthenticatorViaChallengeContinue_Replacement_Token, error) {
-	steamID := d.client.SteamID()
+	steamID := d.client.Session().SteamID()
 	if steamID.Uint64() == 0 {
 		return nil, errors.New("steam client is not logged in")
 	}
 
-	tfService := guard.NewTwoFactorService(d.client.Service())
+	tfService := guard.NewTwoFactorService(d.client)
 
 	resp, err := tfService.RemoveAuthenticatorViaChallengeContinue(ctx, steamID, smsCode)
 	if err != nil {
@@ -182,24 +182,24 @@ func (d *Driver) LinkStart(
 	ctx context.Context,
 	deviceID string,
 ) (*pbSteam.CTwoFactor_AddAuthenticator_Response, error) {
-	steamID := d.client.SteamID()
+	steamID := d.client.Session().SteamID()
 	if steamID.Uint64() == 0 {
 		return nil, errors.New("steam client is not logged in")
 	}
 
-	tfService := guard.NewTwoFactorService(d.client.Service())
+	tfService := guard.NewTwoFactorService(d.client)
 
 	return tfService.AddAuthenticator(ctx, steamID, deviceID)
 }
 
 // LinkFinalize completes the linking of a new authenticator using the SMS/email verification code.
 func (d *Driver) LinkFinalize(ctx context.Context, sharedSecret string, serverTime uint64, smsCode string) error {
-	steamID := d.client.SteamID()
+	steamID := d.client.Session().SteamID()
 	if steamID.Uint64() == 0 {
 		return errors.New("steam client is not logged in")
 	}
 
-	tfService := guard.NewTwoFactorService(d.client.Service())
+	tfService := guard.NewTwoFactorService(d.client)
 
 	resp, err := tfService.FinalizeAuthenticator(ctx, steamID, sharedSecret, serverTime, smsCode)
 	if err != nil {

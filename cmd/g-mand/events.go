@@ -16,9 +16,12 @@ import (
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
+	"github.com/lemon4ksan/g-man/pkg/steam/id"
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/apps"
+	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
 
+	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
@@ -49,6 +52,20 @@ func (d *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonServi
 		case ev, ok := <-sub.C():
 			if !ok {
 				return nil
+			}
+
+			if newOfferEv, ok := ev.(*web.NewOfferEvent); ok && newOfferEv.Offer != nil {
+				if newOfferEv.Offer.OtherSteamID != 0 && newOfferEv.Offer.OtherSteamID < id.FromAccountID(0) {
+					newOfferEv.Offer.OtherSteamID = id.FromAccountID(
+						uint32(newOfferEv.Offer.OtherSteamID), //nolint:gosec
+					)
+				}
+			} else if offerChangedEv, ok := ev.(*web.OfferChangedEvent); ok && offerChangedEv.Offer != nil {
+				if offerChangedEv.Offer.OtherSteamID != 0 && offerChangedEv.Offer.OtherSteamID < id.FromAccountID(0) {
+					offerChangedEv.Offer.OtherSteamID = id.FromAccountID(
+						uint32(offerChangedEv.Offer.OtherSteamID), //nolint:gosec
+					)
+				}
 			}
 
 			var (
@@ -153,22 +170,6 @@ func (d *Daemon) handleEvents(ctx context.Context) {
 					}(desiredAppID)
 				}
 
-			case *auth.LoggedOffEvent:
-				d.logger.Warn("Logged off from Steam", log.Uint32("result", uint32(ev.Result))) // #nosec G115
-				d.mu.RLock()
-				activeApp := d.currentAppID
-				d.mu.RUnlock()
-
-				if activeApp != 0 {
-					if driver, ok := d.registry.Get(activeApp); ok {
-						d.logger.Info("Stopping GC session due to disconnect", log.Uint32("appid", activeApp))
-
-						_ = driver.OnStopGC(ctx)
-					}
-
-					_ = d.apps.StopPlaying(ctx)
-				}
-
 			case *apps.AppLaunchedEvent:
 				d.onAppLaunched(ctx, ev.AppID)
 			case *apps.AppQuitEvent:
@@ -184,53 +185,39 @@ func (d *Daemon) handleEvents(ctx context.Context) {
 				)
 
 			case *web.NewOfferEvent:
-				partnerID := strconv.FormatUint(ev.Offer.OtherSteamID.Uint64(), 10)
+				d.handleTrustedOrExcludedOffer(ctx, ev.Offer)
 
-				if slices.Contains(d.cfg.ExcludedIDs, partnerID) {
-					d.logger.Info(
-						"Auto-declining trade offer from excluded SteamID",
-						log.Uint64("offer_id", ev.Offer.ID),
-						log.String("partner_steam_id", partnerID),
-					)
-
-					webMod := web.From(d.client)
-					if webMod != nil {
-						if err := webMod.DeclineOffer(ctx, ev.Offer.ID); err != nil {
-							d.logger.Error(
-								"Failed to auto-decline trade offer from excluded SteamID",
-								log.Uint64("offer_id", ev.Offer.ID),
-								log.Err(err),
-							)
-						}
-					}
-
-					continue
+			case *web.OfferChangedEvent:
+				if ev.Offer.State == trading.OfferStateActive {
+					d.handleTrustedOrExcludedOffer(ctx, ev.Offer)
 				}
 
-				if slices.Contains(d.cfg.TrustedIDs, partnerID) {
-					d.logger.Info(
-						"Auto-accepting trade offer from trusted SteamID",
-						log.Uint64("offer_id", ev.Offer.ID),
-						log.String("partner_steam_id", partnerID),
-					)
+			case *web.PollSuccessEvent:
+				d.checkAndProcessActiveOffers(ctx)
 
-					webMod := web.From(d.client)
-					if webMod == nil {
-						d.logger.Error(
-							"Web module not registered, cannot auto-accept offer",
-							log.Uint64("offer_id", ev.Offer.ID),
-						)
+			case *tf2.BackpackLoadedEvent:
+				d.logger.Info("Backpack loaded, acknowledging items", log.Int("items", ev.Count))
 
-						continue
+				// Acknowledge items immediately - OnStartGC's goroutine only acks
+				// on FUTURE events, not the current one that triggered it.
+				if tf2Mod := tf2.From(d.client); tf2Mod != nil {
+					if err := tf2Mod.AcknowledgeAll(ctx); err != nil {
+						d.logger.Error("Failed to acknowledge items after backpack load", log.Err(err))
+					}
+				}
+
+				// Start auto-ack goroutine for future item acquisitions
+				if driver, ok := d.registry.Get(tf2.AppID); ok {
+					if err := driver.OnStartGC(ctx); err != nil {
+						d.logger.Error("Failed to start auto-ack after backpack load", log.Err(err))
 					}
 
-					if err := webMod.AcceptOffer(ctx, ev.Offer.ID); err != nil {
-						d.logger.Error(
-							"Failed to auto-accept trade offer from trusted SteamID",
-							log.Uint64("offer_id", ev.Offer.ID),
-							log.Err(err),
-						)
-					}
+					// Run maintenance (smelt, condense, sort) now that items are loaded
+					go func() {
+						if err := driver.(*tf2driver.Driver).RunMaintenance(ctx, d.logger); err != nil {
+							d.logger.Error("Post-load maintenance failed", log.Err(err))
+						}
+					}()
 				}
 			}
 		}
@@ -270,84 +257,76 @@ func (d *Daemon) onAppQuit(ctx context.Context, appID uint32) {
 	}
 }
 
-// watchConnection periodically monitors the Steam connection health.
-// The library (g-man) handles reconnection automatically; this goroutine only
-// performs GC/game cleanup when a persistent drop is detected so that
-// LoggedOnEvent can resume everything cleanly after the library reconnects.
-func (d *Daemon) watchConnection(ctx context.Context) {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
+func (d *Daemon) handleTrustedOrExcludedOffer(ctx context.Context, offer *trading.TradeOffer) {
+	if offer != nil {
+		if offer.OtherSteamID != 0 && offer.OtherSteamID < id.FromAccountID(0) {
+			offer.OtherSteamID = id.FromAccountID(uint32(offer.OtherSteamID)) //nolint:gosec
+		}
+	}
 
-	for {
-		select {
-		case <-ctx.Done():
+	partnerID := strconv.FormatUint(offer.OtherSteamID.Uint64(), 10)
+
+	if slices.Contains(d.cfg.ExcludedIDs, partnerID) {
+		d.logger.Info(
+			"Auto-declining trade offer from excluded SteamID",
+			log.Uint64("offer_id", offer.ID),
+			log.String("partner_steam_id", partnerID),
+		)
+
+		webMod := web.From(d.client)
+		if webMod != nil {
+			if err := webMod.DeclineOffer(ctx, offer.ID); err != nil {
+				d.logger.Error(
+					"Failed to auto-decline trade offer from excluded SteamID",
+					log.Uint64("offer_id", offer.ID),
+					log.Err(err),
+				)
+			}
+		}
+
+		return
+	}
+
+	if slices.Contains(d.cfg.TrustedIDs, partnerID) {
+		d.logger.Info(
+			"Auto-accepting trade offer from trusted SteamID",
+			log.Uint64("offer_id", offer.ID),
+			log.String("partner_steam_id", partnerID),
+		)
+
+		webMod := web.From(d.client)
+		if webMod == nil {
+			d.logger.Error(
+				"Web module not registered, cannot auto-accept offer",
+				log.Uint64("offer_id", offer.ID),
+			)
+
 			return
-		case <-ticker.C:
-			d.mu.RLock()
-			locked := d.isLocked
-			d.mu.RUnlock()
+		}
 
-			if locked {
-				continue
-			}
-
-			if d.isConnectionHealthy() {
-				continue
-			}
-
-			// Connection looks unhealthy — wait to rule out a transient network flap.
-			// The library is already reconnecting; we only need to clean up GC state.
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(5 * time.Second):
-			}
-
-			if d.isConnectionHealthy() {
-				continue
-			}
-
-			d.logger.Warn("Watchdog: Steam connection is unhealthy, cleaning up GC state")
-
-			d.mu.RLock()
-			activeApp := d.currentAppID
-			d.mu.RUnlock()
-
-			if activeApp != 0 {
-				if driver, ok := d.registry.Get(activeApp); ok {
-					d.logger.Info(
-						"Stopping GC session due to watchdog detected drop",
-						log.Uint32("appid", activeApp),
-					)
-
-					_ = driver.OnStopGC(ctx)
-				}
-
-				_ = d.apps.StopPlaying(ctx)
-
-				d.mu.Lock()
-				d.currentAppID = 0
-				d.mu.Unlock()
-			}
+		if err := webMod.AcceptOffer(ctx, offer.ID); err != nil {
+			d.logger.Error(
+				"Failed to auto-accept trade offer from trusted SteamID",
+				log.Uint64("offer_id", offer.ID),
+				log.Err(err),
+			)
 		}
 	}
 }
 
-// isConnectionHealthy reports whether the Steam socket is connected and the session is authenticated.
-func (d *Daemon) isConnectionHealthy() bool {
-	sock := d.client.Socket()
-	if sock == nil {
-		return false
+func (d *Daemon) checkAndProcessActiveOffers(ctx context.Context) {
+	webMod := web.From(d.client)
+	if webMod == nil {
+		return
 	}
 
-	if !sock.IsConnected() {
-		return false
+	pollData := webMod.GetPollData()
+	for offerID, state := range pollData.Received {
+		if state == trading.OfferStateActive {
+			offer, err := webMod.GetOffer(ctx, offerID)
+			if err == nil && offer != nil {
+				d.handleTrustedOrExcludedOffer(ctx, offer)
+			}
+		}
 	}
-
-	session := sock.Session()
-	if session == nil {
-		return false
-	}
-
-	return session.IsAuthenticated()
 }

@@ -3,9 +3,9 @@ module github.com/lemon4ksan/g-man-cli
 go 1.26.2
 
 require (
-	github.com/lemon4ksan/aoni v0.2.0
-	github.com/lemon4ksan/g-man v0.9.0
-	github.com/lemon4ksan/g-man-tf2 v0.4.0
+	github.com/lemon4ksan/aoni v0.3.1
+	github.com/lemon4ksan/g-man v0.11.2
+	github.com/lemon4ksan/g-man-tf2 v0.5.1
 	github.com/lemon4ksan/miyako v0.2.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/stretchr/testify v1.11.1

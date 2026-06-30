@@ -18,8 +18,8 @@ import (
 	"github.com/lemon4ksan/miyako/generic"
 )
 
-// setupProxyConfig configures connection manager socket proxy and web proxies rotator on clientCfg.
-func setupProxyConfig(cfg Config, clientCfg *steam.Config, logger log.Logger) error {
+// setupProxy configures connection manager socket proxy and web proxies rotator on clientCfg.
+func setupProxy(cfg Config, clientCfg *steam.Config, logger log.Logger) (*aoni.Client, error) {
 	if cfg.ProxyCM != "" {
 		clientCfg.Socket.Connector.ProxyURL = cfg.ProxyCM
 		clientCfg.Socket.Connector.ConnectTimeout = 30 * time.Second
@@ -75,7 +75,7 @@ func setupProxyConfig(cfg Config, clientCfg *steam.Config, logger log.Logger) er
 
 			rotator, err := aoni.NewProxyRotator(rotatorConfig, rotatableClients...)
 			if err != nil {
-				return fmt.Errorf("failed to initialize proxy rotator: %w", err)
+				return nil, fmt.Errorf("failed to initialize proxy rotator: %w", err)
 			}
 
 			stickyRotator := rotator.WithStickySessions(aoni.StickyKeyFromCookie("sessionid"))
@@ -106,8 +106,6 @@ func setupProxyConfig(cfg Config, clientCfg *steam.Config, logger log.Logger) er
 		logger.Info("Configured circuit breaker middleware")
 	}
 
-	clientCfg.HTTP = chainedDoer
-
 	restClient := aoni.NewClient(chainedDoer).
 		WithTLSFingerprint(aoni.BrowserChrome).
 		WithUserAgent(chrome.UserAgentWindows).
@@ -131,7 +129,5 @@ func setupProxyConfig(cfg Config, clientCfg *steam.Config, logger log.Logger) er
 		)
 	}
 
-	clientCfg.REST = restClient
-
-	return nil
+	return restClient, nil
 }

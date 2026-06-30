@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
-	"github.com/lemon4ksan/g-man-tf2/pkg/services/pricedb"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
 )
 
@@ -215,7 +214,7 @@ func (d *Driver) actionPriceCheck(ctx context.Context, params map[string]string)
 		return "", errors.New("price-check requires sku parameter")
 	}
 
-	pdbClient := pricedb.NewClient(nil)
+	pdbClient := d.getPDBClient()
 
 	pricesSlice, err := pdbClient.GetItemsBulk(ctx, []string{skuStr})
 	if err != nil {

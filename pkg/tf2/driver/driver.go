@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
+	"github.com/lemon4ksan/g-man-tf2/pkg/services/pricedb"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 
@@ -26,6 +27,7 @@ type Driver struct {
 	client        *steam.Client
 	mu            sync.Mutex
 	cancelAutoAck context.CancelFunc
+	pdbClient     *pricedb.Client
 }
 
 // New constructs a new TF2Driver adapter instance.
@@ -33,6 +35,25 @@ func New(client *steam.Client) *Driver {
 	return &Driver{
 		client: client,
 	}
+}
+
+func (d *Driver) getPDBClient() *pricedb.Client {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.pdbClient == nil {
+		d.pdbClient = pricedb.NewClient(nil)
+	}
+
+	return d.pdbClient
+}
+
+// SetPDBClient overrides the pricedb client used by the driver (e.g. for testing).
+func (d *Driver) SetPDBClient(client *pricedb.Client) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.pdbClient = client
 }
 
 // AppID returns the official TF2 AppID (440).
@@ -76,9 +97,10 @@ func (d *Driver) OnStartGC(ctx context.Context) error {
 			return
 		}
 
-		_ = tf2Mod.AcknowledgeAll(ackCtx)
-
-		sub := d.client.Bus().Subscribe(&tf2.ItemAcquiredEvent{})
+		// Subscribe to both BackpackLoadedEvent (initial bulk load from SOCacheSubscribed)
+		// and ItemAcquiredEvent (individual items from trades/drops). The bulk load
+		// does NOT publish ItemAcquiredEvent, so we must listen for both.
+		sub := d.client.Bus().Subscribe(&tf2.BackpackLoadedEvent{}, &tf2.ItemAcquiredEvent{})
 		defer sub.Unsubscribe()
 
 		for {
@@ -91,7 +113,7 @@ func (d *Driver) OnStartGC(ctx context.Context) error {
 				}
 
 				// Auto-acknowledge new items in the background after a tiny delay
-				// to avoid hammering the GC if multiple items are acquired at once.
+				// to avoid hammering the GC if multiple items arrive at once.
 				time.Sleep(100 * time.Millisecond)
 
 				// Drain any pending events in the channel

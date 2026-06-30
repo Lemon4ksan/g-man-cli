@@ -65,13 +65,22 @@ func (d *Driver) GetInventory(ctx context.Context) ([]game.Item, error) {
 			attrs["custom_desc"] = ri.CustomDesc
 		}
 
+		if ri.DecalUGCID != 0 {
+			attrs["152"] = strconv.FormatUint(ri.DecalUGCID, 10)
+			attrs["227"] = strconv.FormatUint(ri.DecalUGCID>>32, 10)
+		}
+
 		// Attribute ID keys matching schema attribute definitions
 		if ri.Effect != 0 {
 			attrs["134"] = strconv.FormatUint(uint64(ri.Effect), 10)
 		}
 
-		if ri.Paint != 0 {
-			attrs["142"] = strconv.FormatUint(uint64(ri.Paint), 10)
+		if ri.PaintPrimary != 0 {
+			attrs["142"] = strconv.FormatUint(uint64(ri.PaintPrimary), 10)
+		}
+
+		if ri.PaintSecondary != 0 {
+			attrs["261"] = strconv.FormatUint(uint64(ri.PaintSecondary), 10)
 		}
 
 		if ri.CrateSeries != 0 {
@@ -111,6 +120,10 @@ func (d *Driver) GetInventory(ctx context.Context) ([]game.Item, error) {
 			attrs["2013"] = strconv.FormatUint(uint64(ri.Killstreaker), 10)
 		}
 
+		if ri.CrafterAccountID != 0 {
+			attrs["228"] = strconv.FormatUint(uint64(ri.CrafterAccountID), 10)
+		}
+
 		if ri.CraftNumber != 0 {
 			attrs["229"] = strconv.FormatUint(uint64(ri.CraftNumber), 10)
 		}
@@ -121,6 +134,15 @@ func (d *Driver) GetInventory(ctx context.Context) ([]game.Item, error) {
 
 		if ri.Target != 0 {
 			attrs["2012"] = strconv.FormatUint(uint64(ri.Target), 10)
+		}
+
+		if ri.QuestID != 0 {
+			attrs["2051"] = strconv.FormatUint(ri.QuestID, 10)
+			attrs["2052"] = strconv.FormatUint(ri.QuestID>>32, 10)
+		}
+
+		if ri.GifterAccountID != 0 {
+			attrs["186"] = strconv.FormatUint(uint64(ri.GifterAccountID), 10)
 		}
 
 		if ri.IsElevated {
@@ -457,12 +479,21 @@ func (d *Driver) actionItemDetails(ctx context.Context, params map[string]string
 	fmt.Fprintf(&sb, "Tradable:    %v\n", found.IsTradable)
 	fmt.Fprintf(&sb, "Craftable:   %v\n", found.IsCraftable)
 
-	if found.Paint > 0 {
-		paintName := schema.GetPaintName(found.Paint)
+	if found.PaintPrimary > 0 {
+		paintName := schema.GetPaintName(found.PaintPrimary)
 		if paintName != "" {
-			fmt.Fprintf(&sb, "Paint:       %s (0x%06X)\n", paintName, found.Paint)
+			fmt.Fprintf(&sb, "Paint:       %s (0x%06X)\n", paintName, found.PaintPrimary)
 		} else {
-			fmt.Fprintf(&sb, "Paint:       0x%06X\n", found.Paint)
+			fmt.Fprintf(&sb, "Paint:       0x%06X\n", found.PaintPrimary)
+		}
+	}
+
+	if found.PaintSecondary > 0 {
+		paintName := schema.GetPaintName(found.PaintSecondary)
+		if paintName != "" {
+			fmt.Fprintf(&sb, "Paint Sec:   %s (0x%06X)\n", paintName, found.PaintSecondary)
+		} else {
+			fmt.Fprintf(&sb, "Paint Sec:   0x%06X\n", found.PaintSecondary)
 		}
 	}
 
@@ -489,6 +520,10 @@ func (d *Driver) actionItemDetails(ctx context.Context, params map[string]string
 		} else {
 			fmt.Fprintf(&sb, "Paintkit:    %d\n", found.Paintkit)
 		}
+	}
+
+	if found.PaintkitSeed > 0 {
+		fmt.Fprintf(&sb, "Seed:        %d\n", found.PaintkitSeed)
 	}
 
 	if found.KillstreakTier > 0 {
@@ -518,6 +553,22 @@ func (d *Driver) actionItemDetails(ctx context.Context, params map[string]string
 
 	if found.CustomDesc != "" {
 		fmt.Fprintf(&sb, "Custom Desc: %s\n", found.CustomDesc)
+	}
+
+	if found.CrafterAccountID != 0 {
+		fmt.Fprintf(&sb, "Crafter ID:  %d\n", found.CrafterAccountID)
+	}
+
+	if found.GifterAccountID != 0 {
+		fmt.Fprintf(&sb, "Gifter ID:   %d\n", found.GifterAccountID)
+	}
+
+	if found.QuestID != 0 {
+		fmt.Fprintf(&sb, "Quest ID:    %d\n", found.QuestID)
+	}
+
+	if found.DecalUGCID != 0 {
+		fmt.Fprintf(&sb, "Decal UGC ID:%d\n", found.DecalUGCID)
 	}
 
 	// Schema-derived information
@@ -646,7 +697,7 @@ func (d *Driver) actionBackpackValue(ctx context.Context, params map[string]stri
 		skus = append(skus, k)
 	}
 
-	pdbClient := pricedb.NewClient(nil)
+	pdbClient := d.getPDBClient()
 
 	pricesSlice, err := pdbClient.GetItemsBulk(ctx, skus)
 	if err != nil {

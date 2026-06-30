@@ -51,7 +51,7 @@ func (d *Daemon) ExecRequest(ctx context.Context, req *pb.ExecRequestRequest) (*
 }
 
 func (d *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
-	comm := d.client.Community()
+	comm := d.client.Session().Community()
 	if comm == nil {
 		return nil, errors.New("steam community client not authenticated or initialized")
 	}

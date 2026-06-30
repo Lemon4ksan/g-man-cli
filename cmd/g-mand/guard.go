@@ -6,22 +6,18 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/lemon4ksan/g-man/pkg/crypto"
 	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	steamguard "github.com/lemon4ksan/g-man/pkg/steam/guard"
 
 	gd "github.com/lemon4ksan/g-man-cli/pkg/guard/driver"
+	"github.com/lemon4ksan/g-man-cli/pkg/shared"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
@@ -187,7 +183,7 @@ func (d *Daemon) GuardStatus(ctx context.Context, req *pb.GuardStatusRequest) (*
 	return &pb.GuardStatusResponse{
 		Configured:   d.cfg.SharedSecret != "" || d.cfg.IdentitySecret != "",
 		DeviceId:     d.cfg.DeviceID,
-		SteamId:      d.client.SteamID().String(),
+		SteamId:      d.client.Session().SteamID().String(),
 		State:        resp.GetState(),
 		SharedSecret: d.cfg.SharedSecret,
 		AccountName:  d.cfg.Username,
@@ -282,10 +278,7 @@ func (d *Daemon) GuardTransferFinish(
 	sharedSecret := base64.StdEncoding.EncodeToString(token.GetSharedSecret())
 	identitySecret := base64.StdEncoding.EncodeToString(token.GetIdentitySecret())
 
-	devID := d.cfg.DeviceID
-	if devID == "" {
-		devID = crypto.GetDeviceID(d.client.SteamID().Uint64())
-	}
+	devID := shared.ResolveDeviceID(d.cfg.DeviceID, d.client.Session().SteamID().Uint64())
 
 	if err := d.configureGuardian(sharedSecret, identitySecret, devID, "", ""); err != nil {
 		d.logger.Error("Failed to dynamically configure guardian on transfer completion", log.Err(err))
@@ -308,10 +301,7 @@ func (d *Daemon) GuardLinkStart(
 ) (*pb.GuardLinkStartResponse, error) {
 	driver := gd.New(d.client)
 
-	devID := req.GetDeviceId()
-	if devID == "" {
-		devID = crypto.GetDeviceID(d.client.SteamID().Uint64())
-	}
+	devID := shared.ResolveDeviceID(req.GetDeviceId(), d.client.Session().SteamID().Uint64())
 
 	resp, err := driver.LinkStart(ctx, devID)
 	if err != nil {
@@ -345,10 +335,7 @@ func (d *Daemon) GuardLinkFinalize(
 		}, nil
 	}
 
-	devID := req.GetDeviceId()
-	if devID == "" {
-		devID = crypto.GetDeviceID(d.client.SteamID().Uint64())
-	}
+	devID := shared.ResolveDeviceID(req.GetDeviceId(), d.client.Session().SteamID().Uint64())
 
 	if err := d.configureGuardian(req.GetSharedSecret(), req.GetIdentitySecret(), devID, "", ""); err != nil {
 		d.logger.Error("Failed to dynamically configure guardian on link completion", log.Err(err))
@@ -412,43 +399,12 @@ func (d *Daemon) GuardImport(
 	}
 
 	if devID == "" {
-		steamID := d.client.SteamID().Uint64()
+		steamID := d.client.Session().SteamID().Uint64()
 		if steamID == 0 && req.GetRefreshToken() != "" {
-			parts := strings.Split(req.GetRefreshToken(), ".")
-			if len(parts) == 3 {
-				payloadStr := parts[1]
-				if pad := len(payloadStr) % 4; pad != 0 {
-					payloadStr += strings.Repeat("=", 4-pad)
-				}
-
-				if payload, err := base64.URLEncoding.DecodeString(payloadStr); err == nil {
-					var claims struct {
-						Sub string `json:"sub"`
-					}
-					if err := json.Unmarshal(payload, &claims); err == nil {
-						if idVal, err := strconv.ParseUint(claims.Sub, 10, 64); err == nil {
-							steamID = idVal
-						}
-					}
-				}
-			}
+			steamID = shared.ExtractSteamIDFromJWT(req.GetRefreshToken())
 		}
 
-		if steamID > 0 {
-			devID = crypto.GetDeviceID(steamID)
-		} else {
-			var r [16]byte
-
-			_, _ = rand.Read(r[:])
-			sum := hex.EncodeToString(r[:])
-			devID = fmt.Sprintf("android:%s-%s-%s-%s-%s",
-				sum[:8],
-				sum[8:12],
-				sum[12:16],
-				sum[16:20],
-				sum[20:32],
-			)
-		}
+		devID = shared.ResolveDeviceID("", steamID)
 	}
 
 	if err := d.configureGuardian(
