@@ -9,11 +9,13 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha1" //nolint:gosec
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -192,4 +194,36 @@ func DecryptString(encrypted, passphrase string) (string, error) {
 // IsEncryptedString checks if the string starts with the GMANENC: prefix.
 func IsEncryptedString(val string) bool {
 	return strings.HasPrefix(val, EncryptedPrefix)
+}
+
+// GetDeviceID generates a deterministic Android-style Steam Guard Device ID from a SteamID64.
+// Format: "android:XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
+func GetDeviceID(steamID uint64) string {
+	h := sha1.New() //nolint:gosec
+
+	var idBuf [20]byte
+
+	b := strconv.AppendUint(idBuf[:0], steamID, 10)
+	h.Write(b)
+
+	var hashBuf [20]byte
+
+	sum := h.Sum(hashBuf[:0])
+
+	var hexBuf [40]byte
+	hex.Encode(hexBuf[:], sum)
+
+	var result [44]byte
+	copy(result[:8], "android:")
+	copy(result[8:16], hexBuf[:8])
+	result[16] = '-'
+	copy(result[17:21], hexBuf[8:12])
+	result[21] = '-'
+	copy(result[22:26], hexBuf[12:16])
+	result[26] = '-'
+	copy(result[27:31], hexBuf[16:20])
+	result[31] = '-'
+	copy(result[32:44], hexBuf[20:32])
+
+	return string(result[:])
 }

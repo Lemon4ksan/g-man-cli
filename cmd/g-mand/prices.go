@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
-	"github.com/lemon4ksan/g-man/pkg/log"
+	"github.com/lemon4ksan/miyako/log"
 
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
@@ -23,27 +24,44 @@ type manualPriceJSONEntry struct {
 	SellMetal float64 `json:"sell_metal"`
 }
 
-// UpdateManualPrices updates manual pricing values for items in the daemon.
-func (d *Daemon) UpdateManualPrices(
-	ctx context.Context,
-	req *pb.UpdateManualPricesRequest,
-) (*pb.UpdateManualPricesResponse, error) {
-	d.logger.Info("Update manual prices request received", log.Int("count", len(req.GetPrices())))
+// ManualPriceManager encapsulates thread-safe in-memory caching and atomic file persistence
+// for manual item pricing overrides.
+type ManualPriceManager struct {
+	mu     sync.RWMutex
+	prices map[string]manualPriceJSONEntry
+	path   string
+	logger log.Logger
+}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	prices := make(map[string]manualPriceJSONEntry)
-
-	data, err := os.ReadFile(d.cfg.ManualPricesPath)
-	if err == nil {
-		_ = json.Unmarshal(data, &prices)
-	} else if !os.IsNotExist(err) {
-		d.logger.Warn("Failed to read manual prices file", log.Err(err))
+// NewManualPriceManager constructs a new price manager and loads saved manual price entries from disk.
+func NewManualPriceManager(filePath string, logger log.Logger) *ManualPriceManager {
+	m := &ManualPriceManager{
+		prices: make(map[string]manualPriceJSONEntry),
+		path:   filePath,
+		logger: logger.With(log.Module("price_manager")),
 	}
+	m.load()
 
-	for sku, entry := range req.GetPrices() {
-		d.logger.Info("Updating manual price",
+	return m
+}
+
+// Get returns a copy of the manual price entry for the given SKU if defined.
+func (m *ManualPriceManager) Get(sku string) (manualPriceJSONEntry, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	entry, ok := m.prices[sku]
+
+	return entry, ok
+}
+
+// Update adds or updates pricing entries and flushes the entire map atomically to disk.
+func (m *ManualPriceManager) Update(updates map[string]*pb.ManualPriceEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for sku, entry := range updates {
+		m.logger.Info("Updating manual price entry",
 			log.String("sku", sku),
 			log.Uint32("buy_keys", entry.GetBuyKeys()),
 			log.Float64("buy_metal", entry.GetBuyMetal()),
@@ -51,7 +69,7 @@ func (d *Daemon) UpdateManualPrices(
 			log.Float64("sell_metal", entry.GetSellMetal()),
 		)
 
-		prices[sku] = manualPriceJSONEntry{
+		m.prices[sku] = manualPriceJSONEntry{
 			BuyKeys:   int(entry.GetBuyKeys()),
 			BuyMetal:  entry.GetBuyMetal(),
 			SellKeys:  int(entry.GetSellKeys()),
@@ -59,23 +77,57 @@ func (d *Daemon) UpdateManualPrices(
 		}
 	}
 
-	newData, err := json.MarshalIndent(prices, "", "  ")
+	return m.saveLocked()
+}
+
+func (m *ManualPriceManager) load() {
+	data, err := os.ReadFile(m.path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal manual prices: %w", err)
+		if !os.IsNotExist(err) {
+			m.logger.Warn("Failed to read manual prices file", log.Err(err))
+		}
+
+		return
 	}
 
-	dir := filepath.Dir(d.cfg.ManualPricesPath)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create directory for manual prices: %w", err)
+	if err := json.Unmarshal(data, &m.prices); err != nil {
+		m.logger.Error("Failed to parse manual prices JSON", log.Err(err))
+	} else {
+		m.logger.Info("Loaded manual prices into memory", log.Int("count", len(m.prices)))
+	}
+}
+
+func (m *ManualPriceManager) saveLocked() error {
+	newData, err := json.MarshalIndent(m.prices, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal manual prices: %w", err)
 	}
 
-	tmpPath := d.cfg.ManualPricesPath + ".tmp"
+	if err := os.MkdirAll(filepath.Dir(m.path), 0o750); err != nil {
+		return fmt.Errorf("failed to create directory for manual prices: %w", err)
+	}
+
+	tmpPath := m.path + ".tmp"
 	if err := os.WriteFile(tmpPath, newData, 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write manual prices: %w", err)
+		return fmt.Errorf("failed to write manual prices temp file: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, d.cfg.ManualPricesPath); err != nil {
-		return nil, fmt.Errorf("failed to save manual prices: %w", err)
+	if err := os.Rename(tmpPath, m.path); err != nil {
+		return fmt.Errorf("failed to atomically replace manual prices file: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateManualPrices handles gRPC requests to modify manual price entries on the daemon.
+func (d *Daemon) UpdateManualPrices(
+	ctx context.Context,
+	req *pb.UpdateManualPricesRequest,
+) (*pb.UpdateManualPricesResponse, error) {
+	d.logger.Info("Update manual prices request received", log.Int("count", len(req.GetPrices())))
+
+	if err := d.priceMgr.Update(req.GetPrices()); err != nil {
+		return nil, err
 	}
 
 	return &pb.UpdateManualPricesResponse{

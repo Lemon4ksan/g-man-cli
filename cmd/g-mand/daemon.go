@@ -24,7 +24,6 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/behavior/achievements"
 	"github.com/lemon4ksan/g-man/pkg/behavior/guard"
 	sessionbehavior "github.com/lemon4ksan/g-man/pkg/behavior/session"
-	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
 	"github.com/lemon4ksan/g-man/pkg/steam/protocol/enums"
@@ -41,12 +40,21 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
 	"github.com/lemon4ksan/miyako/bus"
 	"github.com/lemon4ksan/miyako/generic"
+	"github.com/lemon4ksan/miyako/log"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
-	gman_crypto "github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
+	"github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 	"github.com/lemon4ksan/g-man-cli/pkg/shared"
 	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
+)
+
+var (
+	ErrFriendsManagerNotInitialized = errors.New("friends manager not initialized")
+	ErrDecryptPasswordFailed        = errors.New("failed to decrypt password")
+	ErrDecryptRefreshTokenFailed    = errors.New("failed to decrypt refresh token")
+	ErrDecryptSharedSecretFailed    = errors.New("failed to decrypt shared secret")
+	ErrDecryptIdentitySecretFailed  = errors.New("failed to decrypt identity secret")
 )
 
 type unlockRequest struct {
@@ -54,22 +62,26 @@ type unlockRequest struct {
 	resChan    chan error
 }
 
-// Daemon implements the DaemonService gRPC server and runs the bot loop.
+// Daemon implements the gRPC [pb.DaemonServiceServer] contract and manages
+// the lifecycle of Steam client modules, game drivers, and chat command dispatching.
+//
+// Thread Safety:
+//   - Safe for concurrent RPC handler invocations. Internal synchronization is handled via RWMutex and sub-managers.
 type Daemon struct {
 	pb.UnimplementedDaemonServiceServer
 
-	cfg          Config
-	store        storage.Provider
-	logger       log.Logger
-	client       *steam.Client
-	apps         *apps.Apps
-	gcCoord      *gc.Coordinator
-	tf2          *tf2.TF2
-	schemaMgr    *schema.Manager
-	registry     *game.Registry
-	sub          *bus.Subscription
-	orchestrator *behavior.Orchestrator
-	wg           sync.WaitGroup
+	cfg       Config
+	store     storage.Provider
+	logger    log.Logger
+	client    *steam.Client
+	apps      *apps.Apps
+	gcCoord   *gc.Coordinator
+	tf2       *tf2.TF2
+	schemaMgr *schema.Manager
+	registry  *game.Registry
+	priceMgr  *ManualPriceManager
+	sub       *bus.Subscription
+	wg        sync.WaitGroup
 
 	mu           sync.RWMutex
 	currentAppID uint32
@@ -85,7 +97,7 @@ type Daemon struct {
 	unlockChan chan unlockRequest
 }
 
-// NewDaemon creates a new Daemon instance with the given configuration and dependencies.
+// NewDaemon constructs a Daemon instance with configured Steam client modules, game drivers, and encryption locks.
 func NewDaemon(
 	cfg Config,
 	store storage.Provider,
@@ -96,32 +108,22 @@ func NewDaemon(
 	clientCfg := steam.DefaultConfig()
 	clientCfg.PersonaState = enums.EPersonaState(cfg.PersonaState)
 
-	rest, err := setupProxy(cfg, &clientCfg, logger)
+	fast, err := setupProxy(cfg, &clientCfg, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	var logFields []log.Field
-	if cfg.Username != "" {
-		logFields = append(logFields, log.String("account", cfg.Username))
-	}
+	logger = logger.With(buildLogFields(cfg)...).With(log.Module("daemon"))
 
-	if cfg.RefreshToken != "" {
-		if id := auth.ExtractSteamIDFromJWT(cfg.RefreshToken); id != 0 {
-			logFields = append(logFields, log.SteamID(id.Uint64()))
-		}
-	}
-
-	if len(logFields) > 0 {
-		logger = logger.With(logFields...)
-	}
-
-	logger = logger.With(log.Module("daemon"))
+	schemaCfg := schema.DefaultConfig()
+	schemaCfg.LiteMode = true
+	schemaCfg.ExcludeMedals = true
+	schemaCfg.ExcludeUntradable = true
 
 	opts := []steam.Option{
 		steam.WithStorage(store),
 		steam.WithLogger(logger),
-		steam.WithREST(rest),
+		steam.WithFastClient(fast),
 		chat.WithModule(),
 		notifications.WithModule(),
 		friends.WithModule(),
@@ -129,11 +131,15 @@ func NewDaemon(
 		apps.WithModule(),
 		gc.WithModule(),
 		web.WithModule(web.DefaultConfig()),
-		schema.WithModule(schema.DefaultConfig()),
+		schema.WithModule(schemaCfg),
 		tf2.WithModule(),
 		backpack.WithModule(),
-		guard.WithModule(guard.DefaultGuardConfig(cfg.SharedSecret, cfg.IdentitySecret, cfg.DeviceID)),
 		commands.WithModule(),
+		behavior.WithModule(),
+	}
+
+	if cfg.IdentitySecret != "" && cfg.DeviceID != "" {
+		opts = append(opts, guard.WithModule(guard.DefaultConfig(cfg.SharedSecret, cfg.IdentitySecret, cfg.DeviceID)))
 	}
 
 	client, err := steam.NewClient(clientCfg, opts...)
@@ -141,25 +147,20 @@ func NewDaemon(
 		return nil, fmt.Errorf("steam client initialization failed: %w", err)
 	}
 
-	appsMod := apps.From(client)
-	gcMod := gc.From(client)
-
 	tf2Mod := tf2.From(client)
 	if tf2Mod != nil {
 		tf2Mod.SetKeepActive(true)
 	}
-
-	schemaMod := schema.From(client)
 
 	registry := game.NewRegistry()
 	if err := registry.Register(tf2driver.New(client)); err != nil {
 		return nil, fmt.Errorf("failed to register TF2 driver: %w", err)
 	}
 
-	isLocked := gman_crypto.IsEncryptedString(cfg.Password) ||
-		gman_crypto.IsEncryptedString(cfg.RefreshToken) ||
-		gman_crypto.IsEncryptedString(cfg.SharedSecret) ||
-		gman_crypto.IsEncryptedString(cfg.IdentitySecret) ||
+	isLocked := crypto.IsEncryptedString(cfg.Password) ||
+		crypto.IsEncryptedString(cfg.RefreshToken) ||
+		crypto.IsEncryptedString(cfg.SharedSecret) ||
+		crypto.IsEncryptedString(cfg.IdentitySecret) ||
 		cfg.MaFileEncrypted
 
 	d := &Daemon{
@@ -167,11 +168,12 @@ func NewDaemon(
 		store:        store,
 		logger:       logger,
 		client:       client,
-		apps:         appsMod,
-		gcCoord:      gcMod,
+		apps:         apps.From(client),
+		gcCoord:      gc.From(client),
 		tf2:          tf2Mod,
-		schemaMgr:    schemaMod,
+		schemaMgr:    schema.From(client),
 		registry:     registry,
+		priceMgr:     NewManualPriceManager(cfg.ManualPricesPath, logger),
 		uptimeStart:  time.Now(),
 		shutdownCtx:  shutdownCtx,
 		shutdownFunc: shutdownFunc,
@@ -182,41 +184,31 @@ func NewDaemon(
 	return d, nil
 }
 
-// Run starts the daemon and runs the core client services.
-func (d *Daemon) Run(ctx context.Context) error {
-	if d.isLocked {
-		d.logger.Info("Daemon configuration is ENCRYPTED. Waiting for gmanctl guard unlock...")
+func buildLogFields(cfg Config) []any {
+	var fields []any
+	if cfg.Username != "" {
+		fields = append(fields, log.String("account", cfg.Username))
+	}
 
-		for d.isLocked {
-			var req unlockRequest
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case r := <-d.unlockChan:
-				req = r
-			}
-
-			d.logger.Info("Decrypting configuration variables...")
-
-			if d.cfg.MaFilePath != "" && d.cfg.MaFileEncrypted {
-				if err := d.handleMaFileDecryption(req.passphrase); err != nil {
-					req.resChan <- err
-					continue
-				}
-
-				req.resChan <- nil
-
-				continue
-			}
-
-			if err := d.decryptConfigValues(req.passphrase); err != nil {
-				req.resChan <- err
-				continue
-			}
-
-			req.resChan <- nil
+	if cfg.RefreshToken != "" {
+		if steamID := auth.ExtractSteamIDFromJWT(cfg.RefreshToken); steamID != 0 {
+			fields = append(fields, log.Uint64("steam_id", steamID.Uint64()))
 		}
 	}
+
+	return fields
+}
+
+// Run executes the daemon lifecycle: handles passphrase unlock if encrypted,
+// discovers Connection Manager servers, connects to Steam, and logs on.
+func (d *Daemon) Run(ctx context.Context) error {
+	if d.isLocked {
+		if err := d.handleUnlockLoop(ctx); err != nil {
+			return err
+		}
+	}
+
+	d.setupBehaviors()
 
 	d.logger.Info("Starting core client services...")
 
@@ -229,35 +221,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("cm discovery failed: %w", err)
 	}
 
-	go func() {
-		dir := directory.New(d.client)
-
-		servers, err := dir.GetCMListForConnect(ctx, directory.CMCfg{})
-		if err == nil && len(servers) > 0 {
-			socketServers := make([]socket.CMServer, len(servers))
-			for i, srv := range servers {
-				socketServers[i] = socket.CMServer{
-					Endpoint: srv.Endpoint,
-					Type:     srv.Type,
-					Load:     float64(srv.Load),
-					Realm:    srv.Realm,
-				}
-			}
-
-			d.client.Socket().UpdateServers(socketServers)
-			d.logger.Info(
-				"CM server pool successfully loaded for dynamic rotation",
-				log.Int("count", len(socketServers)),
-			)
-		}
-	}()
+	go d.initCMServerRotation(ctx)
 
 	d.logger.Info("Optimal CM server found",
 		log.String("endpoint", server.Endpoint),
 		log.Float64("load", server.Load),
 	)
 
-	// Subscribe to auth and apps events to stay in sync with auto-play status
 	d.sub = d.client.Bus().Subscribe(
 		&auth.LoggedOnEvent{},
 		&apps.AppLaunchedEvent{},
@@ -280,27 +250,20 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
-	d.logger.Info("Connecting and authenticating with Steam...",
-		log.String("username", username),
-	)
+	d.logger.Info("Connecting and authenticating with Steam...", log.String("username", username))
 
 	details := &auth.LogOnDetails{
 		AccountName:  username,
 		Password:     d.cfg.Password,
 		RefreshToken: d.cfg.RefreshToken,
 	}
+
 	if err := d.client.ConnectAndLogin(ctx, server, details); err != nil {
 		return fmt.Errorf("connect and login failed: %w", err)
 	}
 
 	if steamID := d.client.Session().SteamID(); steamID != 0 {
-		d.logger = d.logger.With(log.SteamID(steamID.Uint64()))
-	}
-
-	d.setupOrchestrator()
-
-	if err := d.orchestrator.Start(ctx); err != nil {
-		return fmt.Errorf("orchestrator start failed: %w", err)
+		d.logger = d.logger.With(log.Uint64("steam_id", steamID.Uint64()))
 	}
 
 	d.logger.Info("Bot logged in and fully operational")
@@ -308,8 +271,60 @@ func (d *Daemon) Run(ctx context.Context) error {
 	return nil
 }
 
-// handleMaFileDecryption decrypts an encrypted maFile, parses it, applies the
-// credentials to the daemon config, and configures the guardian.
+func (d *Daemon) handleUnlockLoop(ctx context.Context) error {
+	d.logger.Info("Daemon configuration is ENCRYPTED. Waiting for gmanctl guard unlock...")
+
+	for d.isLocked {
+		var req unlockRequest
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case r := <-d.unlockChan:
+			req = r
+		}
+
+		d.logger.Info("Decrypting configuration variables...")
+
+		var err error
+		if d.cfg.MaFilePath != "" && d.cfg.MaFileEncrypted {
+			err = d.handleMaFileDecryption(req.passphrase)
+		} else {
+			err = d.decryptConfigValues(req.passphrase)
+		}
+
+		req.resChan <- err
+	}
+
+	return nil
+}
+
+func (d *Daemon) initCMServerRotation(ctx context.Context) {
+	dir := directory.New(d.client)
+
+	servers, err := dir.GetCMListForConnect(ctx, directory.CMCfg{})
+	if err != nil || len(servers) == 0 {
+		return
+	}
+
+	socketServers := make([]socket.CMServer, len(servers))
+	for i, srv := range servers {
+		socketServers[i] = socket.CMServer{
+			Endpoint: srv.Endpoint,
+			Type:     srv.Type,
+			Load:     float64(srv.Load),
+			Realm:    srv.Realm,
+		}
+	}
+
+	d.client.Socket().UpdateServers(socketServers)
+	d.logger.Info("CM server pool successfully loaded for dynamic rotation", log.Int("count", len(socketServers)))
+}
+
+// GetManualPrice retrieves a copy of the manual price entry for the given SKU from memory.
+func (d *Daemon) GetManualPrice(sku string) (manualPriceJSONEntry, bool) {
+	return d.priceMgr.Get(sku)
+}
+
 func (d *Daemon) handleMaFileDecryption(passphrase string) error {
 	d.logger.Info("Decrypting maFile...", log.String("path", d.cfg.MaFilePath))
 
@@ -318,7 +333,7 @@ func (d *Daemon) handleMaFileDecryption(passphrase string) error {
 		return fmt.Errorf("failed to read maFile: %w", err)
 	}
 
-	decrypted, err := gman_crypto.DecryptData(fileData, passphrase)
+	decrypted, err := crypto.DecryptData(fileData, passphrase)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt maFile: %w", err)
 	}
@@ -370,12 +385,10 @@ func (d *Daemon) handleMaFileDecryption(passphrase string) error {
 	return nil
 }
 
-// decryptConfigValues decrypts individual encrypted config fields using the passphrase
-// and configures the guardian with the decrypted values.
 func (d *Daemon) decryptConfigValues(passphrase string) error {
 	decrypt := func(val string) (string, error) {
-		if gman_crypto.IsEncryptedString(val) {
-			return gman_crypto.DecryptString(val, passphrase)
+		if crypto.IsEncryptedString(val) {
+			return crypto.DecryptString(val, passphrase)
 		}
 
 		return val, nil
@@ -383,22 +396,22 @@ func (d *Daemon) decryptConfigValues(passphrase string) error {
 
 	decryptedPass, err := decrypt(d.cfg.Password)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt password: %w", err)
+		return fmt.Errorf("%w: %w", ErrDecryptPasswordFailed, err)
 	}
 
 	decryptedRefresh, err := decrypt(d.cfg.RefreshToken)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt refresh token: %w", err)
+		return fmt.Errorf("%w: %w", ErrDecryptRefreshTokenFailed, err)
 	}
 
 	decryptedShared, err := decrypt(d.cfg.SharedSecret)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt shared secret: %w", err)
+		return fmt.Errorf("%w: %w", ErrDecryptSharedSecretFailed, err)
 	}
 
 	decryptedIdentity, err := decrypt(d.cfg.IdentitySecret)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt identity secret: %w", err)
+		return fmt.Errorf("%w: %w", ErrDecryptIdentitySecretFailed, err)
 	}
 
 	d.mu.Lock()
@@ -428,52 +441,10 @@ func (d *Daemon) decryptConfigValues(passphrase string) error {
 	return nil
 }
 
-// StartStartupMaintenance launches a background process to maintain inventory
-// after the Game Coordinator transitions to the Connected state.
-func (d *Daemon) StartStartupMaintenance(ctx context.Context) {
-	driver, ok := d.registry.Get(tf2driver.AppID)
-	if !ok {
-		return
-	}
-
-	tf2Driver, ok := driver.(*tf2driver.Driver)
-	if !ok {
-		return
-	}
-
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		timeout := time.After(60 * time.Second)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-timeout:
-				d.logger.Error(
-					"Startup inventory maintenance cancelled: timed out waiting for TF2 Game Coordinator connection",
-				)
-
-				return
-
-			case <-ticker.C:
-				if d.tf2 != nil && d.tf2.Connected() {
-					if err := tf2Driver.RunMaintenance(ctx, d.logger); err != nil {
-						d.logger.Error("Startup inventory maintenance failed", log.Err(err))
-					}
-
-					return
-				}
-			}
-		}
-	}()
-}
-
-// Close stops the daemon and cleans up resources.
+// Close gracefully stops running active game sessions and terminates the Steam client connection.
 func (d *Daemon) Close() {
 	d.logger.Info("Stopping active game sessions...")
+
 	d.mu.Lock()
 	currentApp := d.currentAppID
 	d.currentAppID = 0
@@ -488,11 +459,6 @@ func (d *Daemon) Close() {
 		}
 
 		_ = d.apps.StopPlaying(context.Background())
-	}
-
-	if d.orchestrator != nil {
-		d.orchestrator.Stop()
-		d.logger.Info("Behavior orchestrator stopped")
 	}
 
 	if d.sub != nil {
@@ -510,11 +476,9 @@ func (d *Daemon) Close() {
 	d.logger.Info("Bot shut down successfully")
 }
 
-func (d *Daemon) setupOrchestrator() {
-	d.orchestrator = behavior.NewOrchestrator(d.client.Bus(), d.logger)
-	sessionbehavior.KeepAlive(d.orchestrator, d.client.Session(), sessionbehavior.Config{})
-
-	provider := &dynamicGuardProvider{client: d.client}
+func (d *Daemon) setupBehaviors() {
+	orch := behavior.From(d.client)
+	sessionbehavior.KeepAlive(d.client, sessionbehavior.Config{})
 
 	guardBehaviorCfg := guard.Config{
 		AutoAcceptTypes: generic.NewSet(
@@ -525,11 +489,11 @@ func (d *Daemon) setupOrchestrator() {
 		PollOnStart: true,
 	}
 
-	guard.AutoAccept(d.orchestrator, provider, guardBehaviorCfg)
+	guard.AutoAccept(d.client, guardBehaviorCfg)
 
 	if d.cfg.EnableAchievements {
 		d.logger.Info("Installing human-like achievements simulation behavior")
-		achievements.Simulate(d.orchestrator, d.tf2, tf2.AchievementConfig())
+		achievements.Simulate(orch, d.tf2, tf2.AchievementConfig())
 	}
 }
 
@@ -538,12 +502,11 @@ func (d *Daemon) discoverCMServer(ctx context.Context) (socket.CMServer, error) 
 	defer cancel()
 
 	d.logger.Info("Discovering optimal Steam Connection Manager server...")
-	dir := directory.New(d.client)
 
-	return dir.GetOptimalCMServer(dirCtx)
+	return directory.New(d.client).GetOptimalCMServer(dirCtx)
 }
 
-// GetStatus returns the daemon state, connection status, memory usage, and active game.
+// GetStatus returns the operational status of the daemon, Steam network state, and resource metrics.
 func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.GetStatusResponse, error) {
 	connected := d.client.Socket().IsConnected()
 	steamID := d.client.Session().SteamID().String()
@@ -560,11 +523,8 @@ func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 
 	appName := "Unknown Steam Game"
 	if currentApp != 0 {
-		if _, ok := d.registry.Get(currentApp); ok {
-			// Resolve name from driver
-			if currentApp == tf2.AppID {
-				appName = "Team Fortress 2"
-			}
+		if _, ok := d.registry.Get(currentApp); ok && currentApp == tf2.AppID {
+			appName = "Team Fortress 2"
 		}
 	}
 
@@ -580,6 +540,7 @@ func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 		vacBansCount      uint32
 		emailAddress      string
 	)
+
 	if acc != nil {
 		info := acc.GetAccountInfo()
 		personaName = info.PersonaName
@@ -599,11 +560,8 @@ func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 		isLimited = limitations.IsLimitedAccount
 		isCommunityBanned = limitations.IsCommunityBanned
 
-		vac := acc.GetVACBans()
-		vacBansCount = vac.NumBans
-
-		email := acc.GetEmailInfo()
-		emailAddress = email.EmailAddress
+		vacBansCount = acc.GetVACBans().NumBans
+		emailAddress = acc.GetEmailInfo().EmailAddress
 	}
 
 	return &pb.GetStatusResponse{
@@ -627,7 +585,7 @@ func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 	}, nil
 }
 
-// FreeMemory triggers manual Garbage Collection and releases system memory back to the OS immediately.
+// FreeMemory triggers manual Garbage Collection and returns unallocated heap memory to the OS.
 func (d *Daemon) FreeMemory(ctx context.Context, req *pb.FreeMemoryRequest) (*pb.FreeMemoryResponse, error) {
 	d.logger.Info("Forcing manual garbage collection and freeing system memory...")
 
@@ -643,7 +601,7 @@ func (d *Daemon) FreeMemory(ctx context.Context, req *pb.FreeMemoryRequest) (*pb
 	}, nil
 }
 
-// StopDaemon initiates graceful shutdown of the daemon.
+// StopDaemon schedules an asynchronous graceful shutdown of the daemon runtime.
 func (d *Daemon) StopDaemon(ctx context.Context, req *pb.StopDaemonRequest) (*pb.StopDaemonResponse, error) {
 	d.logger.Info("Stop request received from CLI client")
 
@@ -657,7 +615,6 @@ func (d *Daemon) StopDaemon(ctx context.Context, req *pb.StopDaemonRequest) (*pb
 	}, nil
 }
 
-// generateMemoryProfile collects runtime MemStats and formats them into a clean ASCII table.
 func (d *Daemon) generateMemoryProfile() string {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -702,7 +659,7 @@ func (d *Daemon) generateMemoryProfile() string {
 	return sb.String()
 }
 
-// SetFriendNickname sets a custom nickname for a specific friend.
+// SetFriendNickname configures a custom alias for a Steam friend.
 func (d *Daemon) SetFriendNickname(
 	ctx context.Context,
 	req *pb.SetFriendNicknameRequest,
@@ -714,7 +671,7 @@ func (d *Daemon) SetFriendNickname(
 
 	mgr := friends.From(d.client)
 	if mgr == nil {
-		return nil, errors.New("friends manager not initialized")
+		return nil, ErrFriendsManagerNotInitialized
 	}
 
 	if err := mgr.SetFriendNickname(ctx, req.GetSteamId(), req.GetNickname()); err != nil {

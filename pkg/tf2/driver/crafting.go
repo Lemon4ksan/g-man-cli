@@ -14,7 +14,7 @@ import (
 
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/crafting"
-	"github.com/lemon4ksan/g-man/pkg/log"
+	"github.com/lemon4ksan/miyako/log"
 )
 
 // RunMaintenance performs non-interactive duplicate weapon smelting, metal condensing, and sorting.
@@ -34,8 +34,6 @@ func (d *Driver) RunMaintenance(ctx context.Context, logger log.Logger) error {
 	}
 
 	logger.InfoContext(ctx, "Starting automated non-interactive inventory maintenance...")
-
-	logger.InfoContext(ctx, "Acknowledging all new/crafted items in the backpack...")
 
 	if err := tf2Mod.AcknowledgeAll(ctx); err != nil {
 		logger.ErrorContext(ctx, "Failed to acknowledge items", log.Err(err))

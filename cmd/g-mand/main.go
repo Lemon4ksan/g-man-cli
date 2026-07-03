@@ -12,15 +12,21 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/joho/godotenv"
-	"github.com/lemon4ksan/g-man/pkg/log"
 	"github.com/lemon4ksan/g-man/pkg/storage/jsonfile"
+	"github.com/lemon4ksan/miyako/log"
 	"google.golang.org/grpc"
 
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
+
+func init() {
+	// Set memory limit to 64MB to optimize memory footprint in container environments
+	debug.SetMemoryLimit(64 * 1024 * 1024)
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -28,15 +34,10 @@ func main() {
 	}
 }
 
+// run boots the daemon runtime, initializes storage, starts the gRPC IPC server,
+// and blocks until an OS termination signal is received.
 func run() error {
 	_ = godotenv.Load(getEnvPath())
-
-	var exitCode int
-	defer func() {
-		if exitCode != 0 {
-			os.Exit(exitCode)
-		}
-	}()
 
 	var debugEnabled bool
 	flag.BoolVar(&debugEnabled, "debug", false, "Enable debug logging")
@@ -44,7 +45,7 @@ func run() error {
 	flag.Parse()
 
 	if debugEnabled {
-		fmt.Println("WARNING: daemon is in the debug mode. Make sure to disable it in production.")
+		fmt.Println("WARNING: daemon is in debug mode. Ensure pprof server is disabled in production.")
 
 		go func() {
 			if err := http.ListenAndServe("localhost:6060", nil); err != nil { //#nosec G114
@@ -122,7 +123,6 @@ func run() error {
 	if err := daemon.Run(shutdownCtx); err != nil {
 		logger.Error("Daemon run failed", log.Err(err))
 	} else {
-		daemon.StartStartupMaintenance(shutdownCtx)
 		<-shutdownCtx.Done()
 	}
 

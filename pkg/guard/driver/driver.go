@@ -35,7 +35,12 @@ func (d *Driver) GenerateCode() (string, error) {
 		return "", errors.New("guard module not registered in steam client")
 	}
 
-	return g.GenerateAuthCode()
+	val, ok := g.GenerateAuthCode().Value()
+	if !ok {
+		return "", errors.New("no auth code generated")
+	}
+
+	return string(val[:]), nil
 }
 
 // FetchConfirmations fetches the list of pending confirmations from Steam.

@@ -19,6 +19,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/steam/id"
 	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
+	"github.com/lemon4ksan/miyako/generic"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
 )
@@ -39,8 +40,14 @@ func (d *Driver) actionSendOffer(ctx context.Context, params map[string]string) 
 		return "", errors.New("web module not registered or loaded")
 	}
 
-	offerID, err := webMod.SendOffer(ctx, offerParams)
-	if err != nil {
+	var offerID uint64
+	if err := retryOnRetriable(ctx, func() error {
+		var err error
+
+		offerID, err = webMod.SendOffer(ctx, offerParams)
+
+		return err
+	}); err != nil {
 		return "", fmt.Errorf("failed to send offer: %w", err)
 	}
 
@@ -63,7 +70,9 @@ func (d *Driver) actionAcceptOffer(ctx context.Context, params map[string]string
 		return "", errors.New("web module not registered or loaded")
 	}
 
-	if err := webMod.AcceptOffer(ctx, offerID); err != nil {
+	if err := retryOnRetriable(ctx, func() error {
+		return webMod.AcceptOffer(ctx, offerID)
+	}); err != nil {
 		return "", fmt.Errorf("failed to accept offer: %w", err)
 	}
 
@@ -86,7 +95,9 @@ func (d *Driver) actionDeclineOffer(ctx context.Context, params map[string]strin
 		return "", errors.New("web module not registered or loaded")
 	}
 
-	if err := webMod.DeclineOffer(ctx, offerID); err != nil {
+	if err := retryOnRetriable(ctx, func() error {
+		return webMod.DeclineOffer(ctx, offerID)
+	}); err != nil {
 		return "", fmt.Errorf("failed to decline offer: %w", err)
 	}
 
@@ -109,7 +120,9 @@ func (d *Driver) actionCancelOffer(ctx context.Context, params map[string]string
 		return "", errors.New("web module not registered or loaded")
 	}
 
-	if err := webMod.CancelOffer(ctx, offerID); err != nil {
+	if err := retryOnRetriable(ctx, func() error {
+		return webMod.CancelOffer(ctx, offerID)
+	}); err != nil {
 		return "", fmt.Errorf("failed to cancel offer: %w", err)
 	}
 
@@ -154,6 +167,10 @@ func (d *Driver) actionActiveOffers(ctx context.Context, params map[string]strin
 		if state == trading.OfferStateActive || state == trading.OfferStateCreatedNeedsConfirmation {
 			offer, err := webMod.GetOffer(ctx, offerID)
 			if err == nil && offer != nil {
+				if offer.OtherSteamID != 0 && offer.OtherSteamID < id.FromAccountID(0) {
+					offer.OtherSteamID = id.FromAccountID(uint32(offer.OtherSteamID)) //nolint:gosec
+				}
+
 				activeOffers = append(activeOffers, offer)
 			}
 		}
@@ -167,7 +184,7 @@ func (d *Driver) actionActiveOffers(ctx context.Context, params map[string]strin
 	return string(data), nil
 }
 
-func (d *Driver) actionActiveSentOffers(ctx context.Context, params map[string]string) (string, error) {
+func (d *Driver) actionActiveSentOffers(ctx context.Context, _ map[string]string) (string, error) {
 	webMod := web.From(d.client)
 	if webMod == nil {
 		return "", errors.New("web module not registered or loaded")
@@ -194,19 +211,19 @@ func (d *Driver) actionActiveSentOffers(ctx context.Context, params map[string]s
 	return string(data), nil
 }
 
-func (d *Driver) actionActiveOffersRich(ctx context.Context, params map[string]string) (string, error) {
+func (d *Driver) actionActiveOffersRich(ctx context.Context, _ map[string]string) (string, error) {
 	return d.collectOffersRich(ctx, false, true)
 }
 
-func (d *Driver) actionActiveSentOffersRich(ctx context.Context, params map[string]string) (string, error) {
+func (d *Driver) actionActiveSentOffersRich(ctx context.Context, _ map[string]string) (string, error) {
 	return d.collectOffersRich(ctx, true, true)
 }
 
-func (d *Driver) actionAllOffersRich(ctx context.Context, params map[string]string) (string, error) {
+func (d *Driver) actionAllOffersRich(ctx context.Context, _ map[string]string) (string, error) {
 	return d.collectOffersRich(ctx, false, false)
 }
 
-func (d *Driver) actionAllSentOffersRich(ctx context.Context, params map[string]string) (string, error) {
+func (d *Driver) actionAllSentOffersRich(ctx context.Context, _ map[string]string) (string, error) {
 	return d.collectOffersRich(ctx, true, false)
 }
 
@@ -270,7 +287,7 @@ func (d *Driver) actionGetPartnerInventory(ctx context.Context, params map[strin
 	}
 
 	remoteInv := backpack.NewRemote(
-		uint64(partnerID),
+		partnerID.Uint64(),
 		webMod.Web(),
 		webMod.Community(),
 		s,
@@ -290,7 +307,7 @@ func (d *Driver) actionGetPartnerInventory(ctx context.Context, params map[strin
 			imgURLLarge string
 		)
 
-		skuStr = it.ToSKU()
+		skuStr = stripEffectFromCrateSku(it.ToSKU(), s)
 		if skuStr != "" && skuStr != "N/A" {
 			skuItem, _ = sku.FromString(skuStr)
 		}
@@ -302,10 +319,6 @@ func (d *Driver) actionGetPartnerInventory(ctx context.Context, params map[strin
 			}
 		}
 
-		if skuStr == "" {
-			skuStr = "N/A"
-		}
-
 		gameItems[i] = game.Item{
 			AssetID:     it.ID,
 			DefIndex:    uint32(it.Defindex), //nolint:gosec
@@ -315,7 +328,7 @@ func (d *Driver) actionGetPartnerInventory(ctx context.Context, params map[strin
 			IsCraftable: !it.FlagCannotCraft,
 			Attributes: func() map[string]string {
 				attrs := map[string]string{
-					"sku":        skuStr,
+					"sku":        generic.Coalesce(skuStr, "N/A"),
 					"is_partner": "true",
 				}
 				if imgURL != "" {
@@ -448,6 +461,38 @@ func (d *Driver) actionResolveVanityURL(ctx context.Context, params map[string]s
 	}
 
 	return partnerID.String(), nil
+}
+
+func stripEffectFromCrateSku(skuStr string, s *schema.Schema) string {
+	if skuStr == "" || skuStr == "N/A" {
+		return skuStr
+	}
+
+	skuItem, err := sku.FromString(skuStr)
+	if err != nil || skuItem == nil || skuItem.Effect == 0 {
+		return skuStr
+	}
+
+	const qualityUnusual = 5
+
+	if s != nil {
+		if schItem := s.ItemByDef(skuItem.Defindex); schItem != nil {
+			if schItem.ItemClass != "supply_crate" {
+				return skuStr
+			}
+
+			skuItem.Effect = 0
+
+			return sku.FromObject(skuItem)
+		}
+	}
+
+	if skuItem.Quality != qualityUnusual {
+		skuItem.Effect = 0
+		return sku.FromObject(skuItem)
+	}
+
+	return skuStr
 }
 
 func (d *Driver) resolveTradeOffers(offers []*trading.TradeOffer) ([]byte, error) {

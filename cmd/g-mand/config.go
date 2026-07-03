@@ -13,8 +13,18 @@ import (
 
 	"github.com/lemon4ksan/miyako/generic"
 
-	guardcrypto "github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
+	"github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 	"github.com/lemon4ksan/g-man-cli/pkg/shared"
+)
+
+var (
+	ErrMissingUsername = errors.New(
+		"STEAM_USER environment variable or -username flag is required when refresh token is missing",
+	)
+	ErrMissingAuthPassword = errors.New(
+		"either STEAM_PASS/STEAM_REFRESH_TOKEN env or -password/-refresh-token flag is required",
+	)
+	ErrInvalidMaFile = errors.New("invalid maFile: missing required secret fields")
 )
 
 var (
@@ -68,7 +78,8 @@ func init() {
 	flag.StringVar(&flagMaFilePath, "mafile", "", "Path to SDA .maFile")
 }
 
-// Config holds the configuration loaded from environment variables.
+// Config holds runtime configuration options loaded from flags, environment variables,
+// and Steam Desktop Authenticator (.maFile) secret files.
 type Config struct {
 	Username              string
 	Password              string
@@ -93,6 +104,7 @@ type Config struct {
 	PersonaState          int32
 }
 
+// loadEnvConfig consolidates credentials and settings from CLI flags and environment variables.
 func loadEnvConfig() (Config, error) {
 	username := shared.StringEnvOrFlag(flagUsername, "STEAM_USER", "")
 	password := shared.StringEnvOrFlag(flagPassword, "STEAM_PASS", "")
@@ -113,31 +125,32 @@ func loadEnvConfig() (Config, error) {
 		}
 	}
 
-	storagePath := resolvePerUserPath(flagStoragePath, "STEAM_STORAGE_PATH", "storage.json", flagUsername, username)
-	pricesPath := resolvePerUserPath(
-		flagPricesPath, "STEAM_MANUAL_PRICES_PATH",
-		"cache/tf2/manual_prices.json", flagUsername, username,
-	)
-	socketPath := resolveSocketPath(flagSocketPath)
-	trustedIDs := shared.SplitCommaList(shared.StringEnvOrFlag(flagTrustedIDs, "STEAM_TRUSTED_IDS", ""))
-	excludedIDs := shared.SplitCommaList(shared.StringEnvOrFlag(flagExcludedIDs, "STEAM_EXCLUDED_IDS", ""))
-	proxyCM := shared.StringEnvOrFlag(flagProxyCM, "STEAM_PROXY_CM", "")
-	proxiesWeb := shared.SplitCommaList(shared.StringEnvOrFlag(flagProxiesWeb, "STEAM_PROXIES_WEB", ""))
-
 	return Config{
-		Username:              username,
-		Password:              password,
-		RefreshToken:          refreshToken,
-		SharedSecret:          sharedSecret,
-		IdentitySecret:        identitySecret,
-		DeviceID:              deviceID,
-		StoragePath:           storagePath,
-		ManualPricesPath:      pricesPath,
-		SocketPath:            socketPath,
-		TrustedIDs:            trustedIDs,
-		ExcludedIDs:           excludedIDs,
-		ProxyCM:               proxyCM,
-		ProxiesWeb:            proxiesWeb,
+		Username:       username,
+		Password:       password,
+		RefreshToken:   refreshToken,
+		SharedSecret:   sharedSecret,
+		IdentitySecret: identitySecret,
+		DeviceID:       deviceID,
+		StoragePath: resolvePerUserPath(
+			flagStoragePath,
+			"STEAM_STORAGE_PATH",
+			"storage.json",
+			flagUsername,
+			username,
+		),
+		ManualPricesPath: resolvePerUserPath(
+			flagPricesPath,
+			"STEAM_MANUAL_PRICES_PATH",
+			"cache/tf2/manual_prices.json",
+			flagUsername,
+			username,
+		),
+		SocketPath:            resolveSocketPath(flagSocketPath),
+		TrustedIDs:            shared.SplitCommaList(shared.StringEnvOrFlag(flagTrustedIDs, "STEAM_TRUSTED_IDS", "")),
+		ExcludedIDs:           shared.SplitCommaList(shared.StringEnvOrFlag(flagExcludedIDs, "STEAM_EXCLUDED_IDS", "")),
+		ProxyCM:               shared.StringEnvOrFlag(flagProxyCM, "STEAM_PROXY_CM", ""),
+		ProxiesWeb:            shared.SplitCommaList(shared.StringEnvOrFlag(flagProxiesWeb, "STEAM_PROXIES_WEB", "")),
 		RestLogs:              shared.BoolEnvOrFlag(flagRestLogs, "STEAM_REST_LOGS"),
 		EnableAchievements:    shared.BoolEnvOrFlag(flagEnableAchievements, "STEAM_ENABLE_ACHIEVEMENTS"),
 		DoTEndpoint:           shared.StringEnvOrFlag(flagDoTEndpoint, "STEAM_DOT_ENDPOINT", ""),
@@ -152,7 +165,7 @@ func loadEnvConfig() (Config, error) {
 func loadMaFile(
 	mafilePath string,
 	username, sharedSecret, identitySecret, refreshToken, deviceID *string,
-) (encrypted bool, err error) {
+) (bool, error) {
 	if mafilePath == "" {
 		return false, nil
 	}
@@ -162,7 +175,7 @@ func loadMaFile(
 		return false, fmt.Errorf("failed to read maFile from path %q: %w", mafilePath, err)
 	}
 
-	if len(fileData) >= 8 && string(fileData[:8]) == guardcrypto.CryptoMagic {
+	if len(fileData) >= 8 && string(fileData[:8]) == crypto.CryptoMagic {
 		return true, nil
 	}
 
@@ -172,7 +185,7 @@ func loadMaFile(
 	}
 
 	if err := shared.ValidateMaFile(ma); err != nil {
-		return false, fmt.Errorf("invalid maFile at %q: %w", mafilePath, err)
+		return false, fmt.Errorf("%w at %q: %w", ErrInvalidMaFile, mafilePath, err)
 	}
 
 	*username = generic.Coalesce(*username, ma.AccountName)
@@ -190,15 +203,11 @@ func loadMaFile(
 
 func validateRequiredCredentials(username, password, refreshToken string) error {
 	if username == "" && refreshToken == "" {
-		return errors.New(
-			"STEAM_USER environment variable or -username flag is required when refresh token is missing",
-		)
+		return ErrMissingUsername
 	}
 
 	if password == "" && refreshToken == "" {
-		return errors.New(
-			"either STEAM_PASS/STEAM_REFRESH_TOKEN env or -password/-refresh-token flag is required",
-		)
+		return ErrMissingAuthPassword
 	}
 
 	return nil
@@ -209,7 +218,7 @@ func resolvePerUserPath(flagValue, envKey, defaultValue, flagUsernameVal, userna
 	if flagValue == "" && flagUsernameVal != "" && path == defaultValue {
 		ext := filepath.Ext(defaultValue)
 		base := defaultValue[:len(defaultValue)-len(ext)]
-		path = base + "-" + username + ext
+		return base + "-" + username + ext
 	}
 
 	return path

@@ -5,21 +5,24 @@
 package main
 
 import (
-	"crypto/tls"
 	"fmt"
-	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/lemon4ksan/aoni"
-	"github.com/lemon4ksan/aoni/profiles/chrome"
-	"github.com/lemon4ksan/g-man/pkg/log"
+	"github.com/lemon4ksan/aoni/fast"
+	"github.com/lemon4ksan/aoni/fingerprint/profiles"
+	"github.com/lemon4ksan/aoni/middleware"
+	"github.com/lemon4ksan/aoni/netutil/dns"
+	"github.com/lemon4ksan/aoni/netutil/proxy"
+	"github.com/lemon4ksan/aoni/option"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/miyako/generic"
+	"github.com/lemon4ksan/miyako/log"
 )
 
-// setupProxy configures connection manager socket proxy and web proxies rotator on clientCfg.
-func setupProxy(cfg Config, clientCfg *steam.Config, logger log.Logger) (*aoni.Client, error) {
+// setupProxy configures socket proxies for Steam Connection Manager (CM),
+// uTLS Chrome browser TLS fingerprinting, DoT/DoH DNS resolvers, and sticky proxy rotation pools.
+func setupProxy(cfg Config, clientCfg *steam.Config, logger log.Logger) (*fast.Client, error) {
 	if cfg.ProxyCM != "" {
 		clientCfg.Socket.Connector.ProxyURL = cfg.ProxyCM
 		clientCfg.Socket.Connector.ConnectTimeout = 30 * time.Second
@@ -27,107 +30,91 @@ func setupProxy(cfg Config, clientCfg *steam.Config, logger log.Logger) (*aoni.C
 		logger.Info("Configured Connection Manager socket proxy", log.String("proxy", cfg.ProxyCM))
 	}
 
-	var (
-		middleware []aoni.Middleware
-		baseDoer   aoni.HTTPDoer = &http.Client{Timeout: 10 * time.Second}
-	)
-
-	if cfg.RestLogs {
-		middleware = append(middleware, log.LoggingMiddleware(logger))
-	}
-
-	if len(cfg.ProxiesWeb) > 0 {
-		var rotatableClients []aoni.ClientWithProxy
-		for _, proxyURL := range cfg.ProxiesWeb {
-			parsedURL, err := url.Parse(proxyURL)
-			if err != nil {
-				logger.Error("Skipping invalid proxy URL", log.String("url", proxyURL), log.Err(err))
-				continue
-			}
-
-			transport := &http.Transport{
-				Proxy:                 http.ProxyURL(parsedURL),
-				MaxIdleConns:          10,
-				IdleConnTimeout:       30 * time.Second,
-				TLSHandshakeTimeout:   10 * time.Second,
-				ExpectContinueTimeout: 1 * time.Second,
-				TLSClientConfig:       &tls.Config{InsecureSkipVerify: false},
-			}
-
-			httpClient := &http.Client{
-				Transport: transport,
-				Timeout:   15 * time.Second,
-			}
-
-			rotatableClients = append(rotatableClients, aoni.ClientWithProxy{
-				Client:   httpClient,
-				ProxyURL: proxyURL,
-			})
-		}
-
-		if len(rotatableClients) > 0 {
-			rotatorConfig := aoni.ProxyRotatorConfig{
-				MaxFails:            3,
-				RetryAfter:          45 * time.Second,
-				HealthCheckURL:      "https://api.steampowered.com/ISteamDirectory/GetCMList/v1",
-				HealthCheckInterval: 2 * time.Minute,
-			}
-
-			rotator, err := aoni.NewProxyRotator(rotatorConfig, rotatableClients...)
-			if err != nil {
-				return nil, fmt.Errorf("failed to initialize proxy rotator: %w", err)
-			}
-
-			stickyRotator := rotator.WithStickySessions(aoni.StickyKeyFromCookie("sessionid"))
-
-			retryMiddleware := aoni.RetryMiddleware(aoni.RetryOptions{
-				MaxRetries: 3,
-				Backoff:    500 * time.Millisecond,
-			}, aoni.ProxyRetryCondition(rotator))
-
-			middleware = append(middleware, retryMiddleware)
-
-			baseDoer = stickyRotator
-
-			logger.Info("Configured HTTP WebAPI proxy rotator", log.Int("proxies_count", len(rotatableClients)))
-		}
-	}
-
-	chainedDoer := aoni.Chain(baseDoer, middleware...)
-
-	if cfg.CircuitBreakerEnabled {
-		cb := aoni.NewCircuitBreaker(aoni.CircuitBreakerConfig{
-			FailureThreshold: 5,
-			Cooldown:         30 * time.Second,
-		})
-
-		chainedDoer = aoni.Chain(chainedDoer, aoni.CircuitBreakerMiddleware(cb, nil))
-
-		logger.Info("Configured circuit breaker middleware")
-	}
-
-	restClient := aoni.NewClient(chainedDoer).
-		WithTLSFingerprint(aoni.BrowserChrome).
-		WithUserAgent(chrome.UserAgentWindows).
-		WithMaxResponseSize(100 * 1024 * 1024).
-		WithConnectionPool(aoni.ConnectionPoolConfig{
+	baseOpts := []aoni.ClientOption{
+		option.WithBrowserProfile(aoni.BrowserChrome, profiles.Windows),
+		option.WithTimeout(30 * time.Second),
+		option.WithMaxResponseSize(10 * 1024 * 1024),
+		option.WithConnectionPool(aoni.ConnectionPoolConfig{
 			MaxIdleConns:          100,
 			MaxIdleConnsPerHost:   10,
 			IdleConnTimeout:       90 * time.Second,
 			ResponseHeaderTimeout: 10 * time.Second,
-		})
+		}),
+	}
 
 	if cfg.DoTEndpoint != "" {
 		dotHost := generic.Coalesce(cfg.DoTHost, "cloudflare-dns.com")
 
-		restClient = restClient.WithDoT(cfg.DoTEndpoint, dotHost).
-			WithDNSCache(10 * time.Minute)
+		res := dns.NewFallbackResolver(
+			dns.NewStdlibResolver(),
+			dns.NewDoTResolver(cfg.DoTEndpoint, dotHost),
+			dns.NewDoHResolver("https://1.1.1.1/dns-query", "cloudflare-dns.com", nil),
+		)
 
-		logger.Info("Configured DNS-over-TLS resolver",
+		baseOpts = append(baseOpts, option.WithDNSResolver(dns.NewInMemoryDNSCache(5*time.Minute, res)))
+
+		logger.Info("Configured DNS resolver for fast transport",
 			log.String("endpoint", cfg.DoTEndpoint),
 			log.String("host", dotHost),
 		)
+	} else {
+		res := dns.NewFallbackResolver(
+			dns.NewStdlibResolver(),
+			dns.NewDoHResolver("https://1.1.1.1/dns-query", "cloudflare-dns.com", nil),
+			dns.NewDoHResolver("https://8.8.8.8/dns-query", "dns.google", nil),
+		)
+
+		baseOpts = append(baseOpts, option.WithDNSResolver(dns.NewInMemoryDNSCache(5*time.Minute, res)))
 	}
 
-	return restClient, nil
+	webProxies := cfg.ProxiesWeb
+	if len(webProxies) == 0 && cfg.ProxyCM != "" {
+		webProxies = []string{cfg.ProxyCM}
+	}
+
+	if len(webProxies) == 1 {
+		baseOpts = append(baseOpts, option.WithProxyString(webProxies[0]))
+		logger.Info("Configured Web API proxy", log.String("proxy", webProxies[0]))
+	} else if len(webProxies) > 1 {
+		baseFast := fast.NewClient(baseOpts...)
+
+		rotatableClients := make([]proxy.WithClient, 0, len(webProxies))
+		for _, proxyURL := range webProxies {
+			pClient := fast.NewStdClient(baseFast.With(option.WithProxyString(proxyURL)))
+
+			rotatableClients = append(rotatableClients, proxy.WithClient{
+				Client:   pClient,
+				ProxyURL: proxyURL,
+			})
+		}
+
+		rotatorConfig := proxy.RotatorConfig{
+			MaxFails:            3,
+			RetryAfter:          45 * time.Second,
+			HealthCheckURL:      "https://api.steampowered.com/ISteamDirectory/GetCMList/v1",
+			HealthCheckInterval: 2 * time.Minute,
+			Logger:              logger,
+		}
+
+		rotator, err := proxy.NewRotator(rotatorConfig, rotatableClients...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize web proxy rotator: %w", err)
+		}
+
+		stickyRotator := rotator.WithStickySessions(proxy.StickyKeyFromCookie("sessionid"))
+
+		retryMiddleware := middleware.Retry(middleware.RetryOptions{
+			MaxRetries: 3,
+			Backoff:    500 * time.Millisecond,
+		}, proxy.RetryCondition(rotator))
+
+		chainedEngine := middleware.Chain(stickyRotator, retryMiddleware)
+		httpEngine := aoni.NewRequestDoerAdapter(chainedEngine)
+
+		baseOpts = append(baseOpts, option.WithEngine(httpEngine))
+
+		logger.Info("Configured fast Web API proxy rotator pool", log.Int("count", len(webProxies)))
+	}
+
+	return fast.NewClient(baseOpts...), nil
 }

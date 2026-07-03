@@ -1,4 +1,4 @@
-// Copyright (c) 2026 vlhltf. All rights reserved.
+// Copyright (c) 2026 lemon4ksan. All rights reserved.
 // Use of this source code is governed by a proprietary license.
 
 package shared
@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/lemon4ksan/g-man/pkg/crypto"
+	"github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 )
 
 // GenerateRandomDeviceID creates a random Android-style Steam Guard device ID

@@ -7,62 +7,47 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/lemon4ksan/g-man/pkg/log"
-	"github.com/lemon4ksan/g-man/pkg/steam"
 	steamguard "github.com/lemon4ksan/g-man/pkg/steam/guard"
+	"github.com/lemon4ksan/miyako/log"
 
 	gd "github.com/lemon4ksan/g-man-cli/pkg/guard/driver"
 	"github.com/lemon4ksan/g-man-cli/pkg/shared"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
-type dynamicGuardProvider struct {
-	client *steam.Client
-}
-
-func (p *dynamicGuardProvider) FetchConfirmations(ctx context.Context) ([]*steamguard.Confirmation, error) {
-	g := steamguard.From(p.client)
-	if g == nil {
-		return nil, steamguard.ErrNotConfigured
-	}
-
-	return g.FetchConfirmations(ctx)
-}
-
-func (p *dynamicGuardProvider) AcceptMultiple(ctx context.Context, confs []*steamguard.Confirmation) error {
-	g := steamguard.From(p.client)
-	if g == nil {
-		return steamguard.ErrNotConfigured
-	}
-
-	return g.AcceptMultiple(ctx, confs)
-}
+// Sentinel errors for Steam Guard RPC handlers.
+var (
+	ErrNoAuthSessionWaitingCode = errors.New("no active authentication session waiting for a code")
+	ErrSecretsCannotBeEmpty     = errors.New("shared secret and identity secret cannot be empty")
+)
 
 func (d *Daemon) updateEnvFile(sharedSecret, identitySecret, deviceID, accountName, refreshToken string) {
 	envPath := getEnvPath()
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		d.logger.Warn("No .env file found to update.", log.String("path", envPath))
-		return
-	}
 
 	content, err := os.ReadFile(envPath)
 	if err != nil {
-		d.logger.Error("Failed to read .env file", log.Err(err))
+		if os.IsNotExist(err) {
+			d.logger.Warn("No .env file found to update.", log.String("path", envPath))
+		} else {
+			d.logger.Error("Failed to read .env file", log.Err(err))
+		}
+
 		return
 	}
 
 	lines := strings.Split(string(content), "\n")
-
 	keys := map[string]string{
 		"STEAM_SHARED_SECRET":   sharedSecret,
 		"STEAM_IDENTITY_SECRET": identitySecret,
 		"STEAM_DEVICE_ID":       deviceID,
 	}
+
 	if accountName != "" {
 		keys["STEAM_USER"] = accountName
 	}
@@ -88,7 +73,6 @@ func (d *Daemon) updateEnvFile(sharedSecret, identitySecret, deviceID, accountNa
 		}
 	}
 
-	// Append keys that weren't found
 	var toAppend []string
 	for k, val := range keys {
 		if !updatedKeys[k] {
@@ -97,7 +81,6 @@ func (d *Daemon) updateEnvFile(sharedSecret, identitySecret, deviceID, accountNa
 	}
 
 	if len(toAppend) > 0 {
-		// ensure there is a trailing newline if not already present
 		if len(lines) > 0 && lines[len(lines)-1] != "" {
 			lines = append(lines, "")
 		}
@@ -105,8 +88,7 @@ func (d *Daemon) updateEnvFile(sharedSecret, identitySecret, deviceID, accountNa
 		lines = append(lines, toAppend...)
 	}
 
-	newContent := strings.Join(lines, "\n")
-	if err := os.WriteFile(envPath, []byte(newContent), 0o600); err != nil {
+	if err := os.WriteFile(envPath, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
 		d.logger.Error("Failed to write to .env file", log.Err(err))
 	} else {
 		d.logger.Info("Successfully updated .env file with new credentials.")
@@ -117,8 +99,8 @@ func (d *Daemon) configureGuardian(sharedSecret, identitySecret, deviceID, accou
 	d.mu.Lock()
 	d.cfg.SharedSecret = sharedSecret
 	d.cfg.IdentitySecret = identitySecret
-
 	d.cfg.DeviceID = deviceID
+
 	if accountName != "" {
 		d.cfg.Username = accountName
 	}
@@ -159,7 +141,7 @@ func (d *Daemon) configureGuardian(sharedSecret, identitySecret, deviceID, accou
 	return nil
 }
 
-// GuardCode generates the current Steam Guard 2FA auth code.
+// GuardCode generates the current 2FA Steam Guard authentication code.
 func (d *Daemon) GuardCode(ctx context.Context, req *pb.GuardCodeRequest) (*pb.GuardCodeResponse, error) {
 	driver := gd.New(d.client)
 
@@ -171,7 +153,7 @@ func (d *Daemon) GuardCode(ctx context.Context, req *pb.GuardCodeRequest) (*pb.G
 	return &pb.GuardCodeResponse{Code: code}, nil
 }
 
-// GuardStatus returns the status of Steam Guard on the daemon.
+// GuardStatus queries Steam Guard setup status and device information.
 func (d *Daemon) GuardStatus(ctx context.Context, req *pb.GuardStatusRequest) (*pb.GuardStatusResponse, error) {
 	driver := gd.New(d.client)
 
@@ -190,7 +172,7 @@ func (d *Daemon) GuardStatus(ctx context.Context, req *pb.GuardStatusRequest) (*
 	}, nil
 }
 
-// GuardList retrieves the pending confirmations list.
+// GuardList retrieves pending Steam Mobile confirmations.
 func (d *Daemon) GuardList(ctx context.Context, req *pb.GuardListRequest) (*pb.GuardListResponse, error) {
 	driver := gd.New(d.client)
 
@@ -213,7 +195,7 @@ func (d *Daemon) GuardList(ctx context.Context, req *pb.GuardListRequest) (*pb.G
 	return &pb.GuardListResponse{Confirmations: pbConfs}, nil
 }
 
-// GuardRespond allows accepting or cancelling a confirmation.
+// GuardRespond approves or declines pending trade/login confirmations.
 func (d *Daemon) GuardRespond(ctx context.Context, req *pb.GuardRespondRequest) (*pb.GuardRespondResponse, error) {
 	driver := gd.New(d.client)
 
@@ -240,15 +222,14 @@ func (d *Daemon) GuardRespond(ctx context.Context, req *pb.GuardRespondRequest) 
 	}, nil
 }
 
-// GuardTransferStart starts the mobile authenticator transfer challenge.
+// GuardTransferStart begins the authenticator migration challenge sequence.
 func (d *Daemon) GuardTransferStart(
 	ctx context.Context,
 	req *pb.GuardTransferStartRequest,
 ) (*pb.GuardTransferStartResponse, error) {
 	driver := gd.New(d.client)
 
-	err := driver.TransferStart(ctx)
-	if err != nil {
+	if err := driver.TransferStart(ctx); err != nil {
 		return &pb.GuardTransferStartResponse{ //nolint:nilerr
 			Success: false,
 			Message: err.Error(),
@@ -261,7 +242,7 @@ func (d *Daemon) GuardTransferStart(
 	}, nil
 }
 
-// GuardTransferFinish completes the mobile authenticator transfer using the SMS code.
+// GuardTransferFinish completes the authenticator migration challenge using SMS verification code.
 func (d *Daemon) GuardTransferFinish(
 	ctx context.Context,
 	req *pb.GuardTransferFinishRequest,
@@ -270,14 +251,11 @@ func (d *Daemon) GuardTransferFinish(
 
 	token, err := driver.TransferFinish(ctx, req.GetSmsCode())
 	if err != nil {
-		return &pb.GuardTransferFinishResponse{
-			Success: false,
-		}, err
+		return &pb.GuardTransferFinishResponse{Success: false}, err
 	}
 
 	sharedSecret := base64.StdEncoding.EncodeToString(token.GetSharedSecret())
 	identitySecret := base64.StdEncoding.EncodeToString(token.GetIdentitySecret())
-
 	devID := shared.ResolveDeviceID(d.cfg.DeviceID, d.client.Session().SteamID().Uint64())
 
 	if err := d.configureGuardian(sharedSecret, identitySecret, devID, "", ""); err != nil {
@@ -294,7 +272,7 @@ func (d *Daemon) GuardTransferFinish(
 	}, nil
 }
 
-// GuardLinkStart starts linking a new mobile authenticator.
+// GuardLinkStart initiates mobile authenticator linking setup with Steam.
 func (d *Daemon) GuardLinkStart(
 	ctx context.Context,
 	req *pb.GuardLinkStartRequest,
@@ -320,15 +298,14 @@ func (d *Daemon) GuardLinkStart(
 	}, nil
 }
 
-// GuardLinkFinalize finalizes linking a new mobile authenticator.
+// GuardLinkFinalize completes mobile authenticator linking using received verification code.
 func (d *Daemon) GuardLinkFinalize(
 	ctx context.Context,
 	req *pb.GuardLinkFinalizeRequest,
 ) (*pb.GuardLinkFinalizeResponse, error) {
 	driver := gd.New(d.client)
 
-	err := driver.LinkFinalize(ctx, req.GetSharedSecret(), req.GetServerTime(), req.GetSmsCode())
-	if err != nil {
+	if err := driver.LinkFinalize(ctx, req.GetSharedSecret(), req.GetServerTime(), req.GetSmsCode()); err != nil {
 		return &pb.GuardLinkFinalizeResponse{ //nolint:nilerr
 			Success: false,
 			Message: err.Error(),
@@ -352,7 +329,7 @@ func (d *Daemon) GuardLinkFinalize(
 	}, nil
 }
 
-// GuardSubmitAuthCode submits a 2FA/Email authentication code to continue logon.
+// GuardSubmitAuthCode submits a 2FA/Email authentication code to complete Steam login.
 func (d *Daemon) GuardSubmitAuthCode(
 	ctx context.Context,
 	req *pb.GuardSubmitAuthCodeRequest,
@@ -367,11 +344,10 @@ func (d *Daemon) GuardSubmitAuthCode(
 	if callback == nil {
 		return &pb.GuardSubmitAuthCodeResponse{
 			Success: false,
-			Message: "No active authentication session waiting for a code",
+			Message: ErrNoAuthSessionWaitingCode.Error(),
 		}, nil
 	}
 
-	// Submit the code to the callback in a separate goroutine to prevent gRPC deadlock
 	go callback(req.GetCode())
 
 	return &pb.GuardSubmitAuthCodeResponse{
@@ -380,7 +356,7 @@ func (d *Daemon) GuardSubmitAuthCode(
 	}, nil
 }
 
-// GuardImport dynamically configures Steam Guard secrets in the daemon.
+// GuardImport dynamically configures Steam Guard secrets imported from a SDA .maFile.
 func (d *Daemon) GuardImport(
 	ctx context.Context,
 	req *pb.GuardImportRequest,
@@ -394,7 +370,7 @@ func (d *Daemon) GuardImport(
 	if sharedSecret == "" || identitySecret == "" {
 		return &pb.GuardImportResponse{
 			Success: false,
-			Message: "Shared secret and Identity secret cannot be empty",
+			Message: ErrSecretsCannotBeEmpty.Error(),
 		}, nil
 	}
 
@@ -428,7 +404,7 @@ func (d *Daemon) GuardImport(
 	}, nil
 }
 
-// GuardUnlock handles unlocking the daemon by decrypting credentials using a passphrase.
+// GuardUnlock unlocks encrypted daemon configuration using passphrase provided via gRPC.
 func (d *Daemon) GuardUnlock(ctx context.Context, req *pb.GuardUnlockRequest) (*pb.GuardUnlockResponse, error) {
 	d.mu.RLock()
 	locked := d.isLocked
@@ -449,8 +425,7 @@ func (d *Daemon) GuardUnlock(ctx context.Context, req *pb.GuardUnlockRequest) (*
 
 	unlockErr := <-resChan
 	if unlockErr != nil {
-		//nolint:nilerr
-		return &pb.GuardUnlockResponse{
+		return &pb.GuardUnlockResponse{ //nolint:nilerr
 			Success: false,
 			Message: unlockErr.Error(),
 		}, nil

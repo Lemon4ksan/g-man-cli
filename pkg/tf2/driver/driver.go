@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
-	"github.com/lemon4ksan/g-man-tf2/pkg/services/pricedb"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 
@@ -27,7 +26,6 @@ type Driver struct {
 	client        *steam.Client
 	mu            sync.Mutex
 	cancelAutoAck context.CancelFunc
-	pdbClient     *pricedb.Client
 }
 
 // New constructs a new TF2Driver adapter instance.
@@ -35,25 +33,6 @@ func New(client *steam.Client) *Driver {
 	return &Driver{
 		client: client,
 	}
-}
-
-func (d *Driver) getPDBClient() *pricedb.Client {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if d.pdbClient == nil {
-		d.pdbClient = pricedb.NewClient(nil)
-	}
-
-	return d.pdbClient
-}
-
-// SetPDBClient overrides the pricedb client used by the driver (e.g. for testing).
-func (d *Driver) SetPDBClient(client *pricedb.Client) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	d.pdbClient = client
 }
 
 // AppID returns the official TF2 AppID (440).

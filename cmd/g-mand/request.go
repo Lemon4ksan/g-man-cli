@@ -1,4 +1,4 @@
-// Copyright (c) 2026 lemon4ksan. All rights reserved.
+// Copyright (c) 2026 Lemon4ksan All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -15,10 +15,11 @@ import (
 	"strings"
 
 	"github.com/lemon4ksan/aoni"
-	"github.com/lemon4ksan/g-man/pkg/log"
+	"github.com/lemon4ksan/aoni/mod"
 	"github.com/lemon4ksan/g-man/pkg/steam/community"
 	"github.com/lemon4ksan/g-man/pkg/steam/protocol/enums"
 	"github.com/lemon4ksan/g-man/pkg/steam/service"
+	"github.com/lemon4ksan/miyako/log"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -27,7 +28,13 @@ import (
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
-// ExecRequest executes a generic request to Steam (Community, Unified, or WebAPI)
+// Sentinel errors for request execution.
+var (
+	ErrCommunityClientNotAuthenticated = errors.New("steam community client not authenticated or initialized")
+	ErrUnspecifiedRequestType          = errors.New("unspecified request type")
+)
+
+// ExecRequest dispatches generic HTTP/RPC requests to Steam (Community, Unified Protobuf, or WebAPI).
 func (d *Daemon) ExecRequest(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
 	d.logger.Info("Exec request",
 		log.String("type", req.GetType().String()),
@@ -44,7 +51,7 @@ func (d *Daemon) ExecRequest(ctx context.Context, req *pb.ExecRequestRequest) (*
 	case pb.RequestType_REQUEST_TYPE_WEBAPI:
 		return d.execWebAPI(ctx, req)
 	case pb.RequestType_REQUEST_TYPE_UNSPECIFIED:
-		return nil, errors.New("unspecified request type")
+		return nil, ErrUnspecifiedRequestType
 	default:
 		return nil, fmt.Errorf("unsupported request type: %v", req.GetType())
 	}
@@ -53,7 +60,7 @@ func (d *Daemon) ExecRequest(ctx context.Context, req *pb.ExecRequestRequest) (*
 func (d *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) (*pb.ExecRequestResponse, error) {
 	comm := d.client.Session().Community()
 	if comm == nil {
-		return nil, errors.New("steam community client not authenticated or initialized")
+		return nil, ErrCommunityClientNotAuthenticated
 	}
 
 	method := strings.ToUpper(req.GetMethod())
@@ -75,9 +82,9 @@ func (d *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) 
 			}
 
 			mods = append(mods,
-				aoni.WithBody(strings.NewReader(formData.Encode())),
-				aoni.WithContentType("application/x-www-form-urlencoded; charset=UTF-8"),
-				aoni.WithHeader("Accept", "application/json, text/javascript; q=0.01"),
+				mod.WithBody(strings.NewReader(formData.Encode())),
+				mod.WithContentType("application/x-www-form-urlencoded; charset=UTF-8"),
+				mod.WithHeader("Accept", "application/json, text/javascript; q=0.01"),
 			)
 		} else {
 			var query url.Values
@@ -86,16 +93,16 @@ func (d *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) 
 			}
 
 			if len(query) > 0 {
-				mods = append(mods, aoni.WithQuery(query))
+				mods = append(mods, mod.WithQuery(query))
 			}
 
 			if len(req.GetBody()) > 0 {
-				mods = append(mods, aoni.WithBody(bytes.NewReader(req.GetBody())))
+				mods = append(mods, mod.WithBody(bytes.NewReader(req.GetBody())))
 			}
 
 			mods = append(mods,
-				aoni.WithContentType("application/json; charset=UTF-8"),
-				aoni.WithHeader("Accept", "application/json"),
+				mod.WithContentType("application/json; charset=UTF-8"),
+				mod.WithHeader("Accept", "application/json"),
 			)
 		}
 	} else {
@@ -105,12 +112,12 @@ func (d *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) 
 				q.Set(k, v)
 			}
 
-			mods = append(mods, aoni.WithQuery(q))
+			mods = append(mods, mod.WithQuery(q))
 		}
 
 		mods = append(mods,
-			aoni.WithHeader("Accept", "application/json, text/javascript; q=0.01"),
-			aoni.WithHeader("X-Requested-With", "XMLHttpRequest"),
+			mod.WithHeader("Accept", "application/json, text/javascript; q=0.01"),
+			mod.WithHeader("X-Requested-With", "XMLHttpRequest"),
 		)
 	}
 
@@ -125,7 +132,7 @@ func (d *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) 
 		return nil, fmt.Errorf("failed to read community response: %w", err)
 	}
 
-	headers := make(map[string]string)
+	headers := make(map[string]string, len(resp.Header))
 	for k, v := range resp.Header {
 		if len(v) > 0 {
 			headers[k] = v[0]
@@ -136,7 +143,7 @@ func (d *Daemon) execCommunity(ctx context.Context, req *pb.ExecRequestRequest) 
 		Success:    true,
 		Message:    fmt.Sprintf("Community request completed with status %d", resp.StatusCode),
 		Body:       respBody,
-		StatusCode: int32(resp.StatusCode), // #nosec G115
+		StatusCode: int32(resp.StatusCode), //#nosec G115
 		Headers:    headers,
 	}, nil
 }
@@ -218,16 +225,16 @@ func (d *Daemon) execUnified(ctx context.Context, req *pb.ExecRequestRequest) (*
 	headers := make(map[string]string)
 
 	if httpMeta, ok := resp.HTTP(); ok {
-		eresult = uint32(httpMeta.Result) // #nosec G115
+		eresult = uint32(httpMeta.Result)       //#nosec G115
+		statusCode = int32(httpMeta.StatusCode) //#nosec G115
 
-		statusCode = int32(httpMeta.StatusCode) // #nosec G115
 		for k, v := range httpMeta.Header {
 			if len(v) > 0 {
 				headers[k] = v[0]
 			}
 		}
 	} else if socketMeta, ok := resp.Socket(); ok {
-		eresult = uint32(socketMeta.Result) // #nosec G115
+		eresult = uint32(socketMeta.Result) //#nosec G115
 	}
 
 	var outputBytes []byte
@@ -298,8 +305,8 @@ func (d *Daemon) execWebAPI(ctx context.Context, req *pb.ExecRequestRequest) (*p
 	headers := make(map[string]string)
 
 	if httpMeta, ok := resp.HTTP(); ok {
-		eresult = uint32(httpMeta.Result)       // #nosec G115
-		statusCode = int32(httpMeta.StatusCode) // #nosec G115
+		eresult = uint32(httpMeta.Result)       //#nosec G115
+		statusCode = int32(httpMeta.StatusCode) //#nosec G115
 
 		for k, v := range httpMeta.Header {
 			if len(v) > 0 {

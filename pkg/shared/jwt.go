@@ -1,4 +1,4 @@
-// Copyright (c) 2026 vlhltf. All rights reserved.
+// Copyright (c) 2026 lemon4ksan. All rights reserved.
 // Use of this source code is governed by a proprietary license.
 
 package shared
