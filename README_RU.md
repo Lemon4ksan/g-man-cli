@@ -16,55 +16,6 @@
 
 **G-man CLI** — это официальный системный инструментарий управления и фоновый сервис для автоматизации процессов в Steam на базе фреймворка **G-man**. Состоящий из высокопроизводительного демона (`g-mand`) и консольного клиента (`gmanctl`), проект обеспечивает надежное управление операциями, координацию нескольких игр и прямой контроль над инвентарем через защищенные IPC-каналы gRPC с низкой задержкой.
 
-## 🛠 Обзор архитектуры
-
-Инструментарий построен на классической клиент-серверной модели взаимодействия через локальный IPC-канал. Демон удерживает постоянные сетевые сессии Steam (Connection Manager) и автоматически синхронизируется с игровыми модулями, тогда как CLI-клиент выступает в роли легковесного stateless-триггера команд:
-
-```mermaid
-flowchart TD
-    classDef client fill:#2a475e,stroke:#66c0f4,stroke-width:1px,color:#c7d5e0;
-    classDef ipc fill:#45475a,stroke:#f9e2af,stroke-width:1px,color:#f9e2af,stroke-dasharray: 5 5;
-    classDef daemon fill:#171a21,stroke:#cba6f7,stroke-width:2px,color:#cdd6f4;
-    classDef game fill:#313244,stroke:#a6e3a1,stroke-width:1px,color:#cdd6f4;
-    classDef steam fill:#1b2838,stroke:#66c0f4,stroke-width:2px,color:#fff;
-
-    subgraph UserInterface [Пользовательское пространство]
-        CTL[gmanctl CLI-клиент]
-    end
-    class UserInterface,CTL client;
-
-    subgraph IPCChannel [IPC-мост с низкой задержкой]
-        UDS[Unix Domain Socket / TCP Loopback]
-    end
-    class IPCChannel,UDS ipc;
-
-    subgraph ServiceDaemon [Системный демон g-mand]
-        gRPC[gRPC API Сервер]
-        Client[g-man Core Клиент]
-        Orch[Оркестратор поведения]
-        Reg[Реестр игровых драйверов]
-    end
-    class ServiceDaemon,gRPC,Client,Orch,Reg daemon;
-
-    subgraph GameAdapters [Драйверы игровых сессий]
-        TF2[TF2 Драйвер-адаптер]
-    end
-    class GameAdapters,TF2 game;
-
-    subgraph External [Инфраструктура Steam]
-        SteamCloud((Сеть Steam))
-    end
-    class External,SteamCloud steam;
-
-    CTL <-->|gRPC вызовы| UDS
-    UDS <--> gRPC
-    gRPC <--> Client
-    gRPC <--> Reg
-    Reg <--> TF2
-    Client <--> Orch
-    Client <-->|Протокол Steam| SteamCloud
-```
-
 ## ⚡ Ключевые особенности
 
 ### 📡 Высокопроизводительные IPC-каналы gRPC

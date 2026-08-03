@@ -237,6 +237,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		&web.OfferChangedEvent{},
 		&web.PollSuccessEvent{},
 		&tf2.BackpackLoadedEvent{},
+		&notifications.UserNotificationsEvent{},
+		&notifications.ReceivedEvent{},
 	)
 
 	d.wg.Go(func() {

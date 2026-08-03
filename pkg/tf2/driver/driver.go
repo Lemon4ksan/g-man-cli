@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lemon4ksan/aoni"
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/steam"
@@ -26,6 +27,7 @@ type Driver struct {
 	client        *steam.Client
 	mu            sync.Mutex
 	cancelAutoAck context.CancelFunc
+	priceDBDoer   aoni.RequestDoer // optional; nil means use default
 }
 
 // New constructs a new TF2Driver adapter instance.

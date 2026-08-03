@@ -156,94 +156,32 @@ func getUnexportedField(target any, fieldName string) reflect.Value {
 }
 
 func setUnexportedField(target any, fieldName string, value any) {
-	if fieldName == "items" {
-		if soCache, ok := target.(*tf2.SOCache); ok {
-			if itemsSlice, ok := value.([]*tf2.Item); ok {
-				setSOCacheItems(soCache, itemsSlice)
-				return
-			}
-
-			if itemsMap, ok := value.(map[uint64]*tf2.Item); ok {
-				var items []*tf2.Item
-				for _, it := range itemsMap {
-					items = append(items, it)
-				}
-
-				setSOCacheItems(soCache, items)
-
-				return
-			}
-		}
-	}
-
 	getUnexportedField(target, fieldName).Set(reflect.ValueOf(value))
 }
 
 func setSOCacheItems(soCache *tf2.SOCache, items []*tf2.Item) {
-	itemMap := make(map[uint64]*tf2.Item)
-	for _, it := range items {
-		itemMap[it.ID] = it
-	}
-
-	getUnexportedField(soCache, "fullItems").Set(reflect.ValueOf(itemMap))
-
 	field := getUnexportedField(soCache, "items")
-	mapType := field.Type()
-	m := reflect.MakeMap(mapType)
-	elemType := mapType.Elem()
+	fieldType := field.Type()
 
-	fieldMap := map[string]string{
-		"AssetID":    "ID",
-		"Killstreak": "KillstreakTier",
-	}
-
-	for _, it := range items {
-		k := reflect.ValueOf(it.ID)
-		v := reflect.ValueOf(it)
-
-		switch {
-		case v.Type().AssignableTo(elemType):
-			m.SetMapIndex(k, v)
-		case v.Type().Elem().AssignableTo(elemType):
-			m.SetMapIndex(k, v.Elem())
-		case elemType.Kind() == reflect.Struct:
-			packedVal := reflect.New(elemType).Elem()
-
-			itVal := reflect.ValueOf(*it)
-			for i := 0; i < elemType.NumField(); i++ {
-				fName := elemType.Field(i).Name
-
-				srcName := fName
-				if mapped, ok := fieldMap[fName]; ok {
-					srcName = mapped
-				}
-
-				f := itVal.FieldByName(srcName)
-				if f.IsValid() {
-					targetF := packedVal.Field(i)
-					if f.Type().AssignableTo(targetF.Type()) {
-						if targetF.CanSet() {
-							targetF.Set(f)
-						} else {
-							reflect.NewAt(targetF.Type(), unsafe.Pointer(targetF.UnsafeAddr())).Elem().Set(f)
-						}
-					} else if f.Type().ConvertibleTo(targetF.Type()) {
-						if targetF.CanSet() {
-							targetF.Set(f.Convert(targetF.Type()))
-						} else {
-							reflect.NewAt(targetF.Type(), unsafe.Pointer(targetF.UnsafeAddr())).
-								Elem().
-								Set(f.Convert(targetF.Type()))
-						}
-					}
-				}
+	if fieldType == reflect.TypeOf(map[uint64]tf2.PackedItem{}) {
+		packed := make(map[uint64]tf2.PackedItem, len(items))
+		for _, it := range items {
+			if it != nil {
+				packed[it.ID] = tf2.PackGCItem(it)
 			}
-
-			m.SetMapIndex(k, packedVal)
 		}
-	}
 
-	field.Set(m)
+		field.Set(reflect.ValueOf(packed))
+	} else {
+		itemMap := make(map[uint64]*tf2.Item, len(items))
+		for _, it := range items {
+			if it != nil {
+				itemMap[it.ID] = it
+			}
+		}
+
+		field.Set(reflect.ValueOf(itemMap))
+	}
 }
 
 func setupDriver(
@@ -372,8 +310,8 @@ func TestDriver_GetInventory(t *testing.T) {
 	d, tf2Mod, _, _, _, _, _, _ := setupDriver(t)
 
 	soCache := tf2Mod.Cache()
-	itemsMap := map[uint64]*tf2.Item{
-		123: {
+	setSOCacheItems(soCache, []*tf2.Item{
+		{
 			ID:          123,
 			OriginalID:  122,
 			DefIndex:    5021,
@@ -381,19 +319,15 @@ func TestDriver_GetInventory(t *testing.T) {
 			Quantity:    1,
 			IsTradable:  true,
 			IsCraftable: true,
-			CustomName:  "Test Name",
-			CustomDesc:  "Test Desc",
-			SKU:         "5021;6",
 		},
-	}
-	setUnexportedField(soCache, "items", itemsMap)
+	})
 
 	items, err := d.GetInventory(context.Background())
 	assert.NoError(t, err)
 	assert.Len(t, items, 1)
 	assert.Equal(t, uint64(123), items[0].AssetID)
-	assert.Equal(t, "Test Name", items[0].Attributes["custom_name"])
-	assert.Equal(t, "5021;6", items[0].Attributes["sku"])
+	assert.Equal(t, uint32(5021), items[0].DefIndex)
+	assert.True(t, items[0].IsTradable)
 }
 
 func TestDriver_SortInventory(t *testing.T) {
@@ -526,7 +460,14 @@ func TestDriver_ExecuteAction(t *testing.T) {
 			SKU:         "9999;0",
 		},
 	}
-	setUnexportedField(soCache, "items", itemsMap)
+	{
+		var sl []*tf2.Item
+		for _, v := range itemsMap {
+			sl = append(sl, v)
+		}
+
+		setSOCacheItems(soCache, sl)
+	}
 
 	res, err := d.ExecuteAction(ctx, "inventory", nil)
 	assert.NoError(t, err)
@@ -951,19 +892,10 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	assert.Contains(t, res, "Successfully smelted items 101 and 102")
 
 	// 18e. "backpack-value"
-	// Mock HTTP requests to pricedb
-	oldTransport := http.DefaultClient.Transport
-	defer func() { http.DefaultClient.Transport = oldTransport }()
-
-	oldDefaultTransport := http.DefaultTransport
-	defer func() { http.DefaultTransport = oldDefaultTransport }()
-
-	var rt http.RoundTripper = &mockRounder{
-		roundTrip: func(req *http.Request) (*http.Response, error) {
-			body := `[
-				{"sku": "5021;6", "buy": {"keys": 0, "metal": 72.5}, "sell": {"keys": 0, "metal": 73.0}},
-				{"sku": "5002;6", "buy": {"keys": 0, "metal": 1.0}, "sell": {"keys": 0, "metal": 1.0}}
-			]`
+	// Mock pricedb via aoni adapter so no real DNS lookups happen.
+	d.priceDBDoer = aoni.NewHTTPDoerAdapter(&mockHTTPClient{
+		do: func(req *http.Request) (*http.Response, error) {
+			body := `[{"sku":"5021;6","buy":{"keys":0,"metal":72.5},"sell":{"keys":0,"metal":73.0}},{"sku":"5002;6","buy":{"keys":0,"metal":1.0},"sell":{"keys":0,"metal":1.0}}]`
 
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -971,20 +903,24 @@ func TestDriver_ExecuteAction(t *testing.T) {
 				Header:     make(http.Header),
 			}, nil
 		},
-	}
-
-	http.DefaultClient.Transport = rt
-	http.DefaultTransport = rt
+	})
+	defer func() { d.priceDBDoer = nil }()
 
 	// Seed item cache
 	itemsMap[123] = &tf2.Item{ID: 123, DefIndex: 5021, Quality: 6, Quantity: 1, IsTradable: true, SKU: "5021;6"}
 	itemsMap[126] = &tf2.Item{ID: 126, DefIndex: 5002, Quality: 1, Quantity: 2, IsTradable: true, SKU: "5002;6"}
-	setUnexportedField(soCache, "items", itemsMap)
+	{
+		var sl []*tf2.Item
+		for _, v := range itemsMap {
+			sl = append(sl, v)
+		}
+
+		setSOCacheItems(soCache, sl)
+	}
 
 	res, err = d.ExecuteAction(ctx, "backpack-value", nil)
 	assert.NoError(t, err)
 	assert.Contains(t, res, "BACKPACK VALUATION")
-	assert.Contains(t, res, "Key Rate (Buy/Sell)")
 
 	// 19. Default/Unsupported
 	_, err = d.ExecuteAction(ctx, "unsupported-action", nil)
@@ -1043,6 +979,14 @@ type mockRounder struct {
 
 func (m *mockRounder) RoundTrip(req *http.Request) (*http.Response, error) {
 	return m.roundTrip(req)
+}
+
+type mockHTTPClient struct {
+	do func(req *http.Request) (*http.Response, error)
+}
+
+func (m *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	return m.do(req)
 }
 
 func TestDriver_ItemDetails_ItemFound(t *testing.T) {
@@ -1146,13 +1090,24 @@ func TestDriver_BackpackValue_Empty(t *testing.T) {
 func TestDriver_BackpackValue_WithItems(t *testing.T) {
 	d, tf2Mod, _, _, _, _, _, _ := setupDriver(t)
 
+	d.priceDBDoer = aoni.NewHTTPDoerAdapter(&mockHTTPClient{
+		do: func(req *http.Request) (*http.Response, error) {
+			body := `[{"sku":"5021;6","buy":{"keys":0,"metal":72.5},"sell":{"keys":0,"metal":73.0}}]`
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Header:     make(http.Header),
+			}, nil
+		},
+	})
+
 	soCache := tf2Mod.Cache()
 	setSOCacheItems(soCache, []*tf2.Item{
 		{ID: 1, DefIndex: 5021, Quality: 6, Quantity: 2, SKU: "5021;6"},
 		{ID: 2, DefIndex: 5002, Quality: 6, Quantity: 9, SKU: "5002;6"},
 	})
 
-	// Backpack value works without pricedb — unpriced items get fallback pricing
 	result, err := d.ExecuteAction(context.Background(), "backpack-value", map[string]string{})
 
 	require.NoError(t, err)

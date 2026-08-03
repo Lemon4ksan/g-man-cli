@@ -16,55 +16,6 @@
 
 **G-man CLI** is the official system control toolchain and daemon suite for **G-man** Steam automation pipelines. Consisting of a high-performance background daemon (`g-mand`) and a styled, color-coded command-line client (`gmanctl`), it provides industrial-scale operations management, multi-game coordination, and direct inventory control over secure, low-latency gRPC channels.
 
-## 🛠 Architecture Overview
-
-The toolchain operates under a strict client-server model over a local IPC channel. The daemon holds stateful CM connection sessions and automatically synchronizes with active game modules, while the CLI client acts as a stateless, lightweight trigger:
-
-```mermaid
-flowchart TD
-    classDef client fill:#2a475e,stroke:#66c0f4,stroke-width:1px,color:#c7d5e0;
-    classDef ipc fill:#45475a,stroke:#f9e2af,stroke-width:1px,color:#f9e2af,stroke-dasharray: 5 5;
-    classDef daemon fill:#171a21,stroke:#cba6f7,stroke-width:2px,color:#cdd6f4;
-    classDef game fill:#313244,stroke:#a6e3a1,stroke-width:1px,color:#cdd6f4;
-    classDef steam fill:#1b2838,stroke:#66c0f4,stroke-width:2px,color:#fff;
-
-    subgraph UserInterface [User Space]
-        CTL[gmanctl CLI Client]
-    end
-    class UserInterface,CTL client;
-
-    subgraph IPCChannel [Low-Latency IPC Bridge]
-        UDS[Unix Domain Socket / TCP Loopback]
-    end
-    class IPCChannel,UDS ipc;
-
-    subgraph ServiceDaemon [g-mand System Daemon]
-        gRPC[gRPC API Server]
-        Client[g-man Core Client]
-        Orch[Behavior Orchestrator]
-        Reg[Game Driver Registry]
-    end
-    class ServiceDaemon,gRPC,Client,Orch,Reg daemon;
-
-    subgraph GameAdapters [Stateful Game Drivers]
-        TF2[TF2 Driver Adapter]
-    end
-    class GameAdapters,TF2 game;
-
-    subgraph External [Steam Infrastructure]
-        SteamCloud((Steam Network))
-    end
-    class External,SteamCloud steam;
-
-    CTL <-->|gRPC Calls| UDS
-    UDS <--> gRPC
-    gRPC <--> Client
-    gRPC <--> Reg
-    Reg <--> TF2
-    Client <--> Orch
-    Client <-->|Steam Protocol| SteamCloud
-```
-
 ## ⚡ Key Features
 
 ### 📡 Low-Latency gRPC IPC Channels

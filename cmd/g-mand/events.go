@@ -17,6 +17,7 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
 	"github.com/lemon4ksan/g-man/pkg/steam/id"
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/apps"
+	"github.com/lemon4ksan/g-man/pkg/steam/sys/notifications"
 	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
 	"github.com/lemon4ksan/miyako/log"
@@ -39,6 +40,8 @@ func (d *Daemon) StreamEvents(req *pb.StreamEventsRequest, stream pb.DaemonServi
 		&web.NewOfferEvent{},
 		&web.OfferChangedEvent{},
 		&auth.SteamGuardRequiredEvent{},
+		&notifications.UserNotificationsEvent{},
+		&notifications.ReceivedEvent{},
 	)
 	defer sub.Unsubscribe()
 
@@ -144,10 +147,19 @@ func (d *Daemon) handleEvents(ctx context.Context) {
 				}
 			case *web.PollSuccessEvent:
 				d.checkAndProcessActiveOffers(ctx)
+			case *notifications.UserNotificationsEvent, *notifications.ReceivedEvent:
+				d.handleNotificationEvent(ctx, ev)
 			case *tf2.BackpackLoadedEvent:
 				d.handleBackpackLoadedEvent(ctx, ev.Count)
 			}
 		}
+	}
+}
+
+func (d *Daemon) handleNotificationEvent(ctx context.Context, ev any) {
+	if webMod := web.From(d.client); webMod != nil {
+		d.logger.Debug("Real-time Steam notification event received on bus, triggering instant trade poll")
+		webMod.TriggerPoll()
 	}
 }
 
@@ -212,7 +224,7 @@ func (d *Daemon) handleBackpackLoadedEvent(ctx context.Context, itemTotal int) {
 }
 
 func (d *Daemon) handleTrustedOrExcludedOffer(ctx context.Context, offer *trading.TradeOffer) {
-	if offer == nil {
+	if offer == nil || offer.IsOurOffer {
 		return
 	}
 

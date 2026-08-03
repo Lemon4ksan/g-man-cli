@@ -413,7 +413,7 @@ func (d *Driver) actionInventoryStats(_ context.Context, _ map[string]string) (s
 	return sb.String(), nil
 }
 
-func (d *Driver) actionItemDetails(_ context.Context, params map[string]string) (string, error) {
+func (d *Driver) actionItemDetails(ctx context.Context, params map[string]string) (string, error) {
 	tf2Mod, err := d.getTF2Module()
 	if err != nil {
 		return "", err
@@ -697,15 +697,17 @@ func (d *Driver) actionBackpackValue(ctx context.Context, params map[string]stri
 		skus = append(skus, k)
 	}
 
-	pdbClient := pricedb.NewClient(nil)
+	pdbClient := pricedb.NewClient(d.priceDBDoer)
+
+	pricesSlice, err := pdbClient.GetItemsBulk(ctx, skus)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch prices from pricedb: %w", err)
+	}
 
 	prices := make(map[string]*pricedb.Price)
-
-	if pricesSlice, pdbErr := pdbClient.GetItemsBulk(ctx, skus); pdbErr == nil {
-		for _, p := range pricesSlice {
-			if p != nil {
-				prices[p.SKU] = p
-			}
+	for _, p := range pricesSlice {
+		if p != nil {
+			prices[p.SKU] = p
 		}
 	}
 

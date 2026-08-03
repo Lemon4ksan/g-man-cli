@@ -16,6 +16,7 @@ import (
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
 	"github.com/lemon4ksan/g-man-tf2/pkg/sku"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
+	"github.com/lemon4ksan/g-man/pkg/steam/community"
 	"github.com/lemon4ksan/g-man/pkg/steam/id"
 	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
@@ -120,33 +121,92 @@ func (d *Driver) actionCancelOffer(ctx context.Context, params map[string]string
 		return "", errors.New("web module not registered or loaded")
 	}
 
+	var cancelErr error
 	if err := retryOnRetriable(ctx, func() error {
 		return webMod.CancelOffer(ctx, offerID)
 	}); err != nil {
-		return "", fmt.Errorf("failed to cancel offer: %w", err)
+		cancelErr = err
+	}
+
+	// Also perform cancellation via Steam Community Web endpoint if logged in
+	if comm := webMod.Community(); comm != nil {
+		sessionID := ""
+		if sp, ok := comm.(community.SessionProvider); ok {
+			sessionID = sp.SessionID(community.BaseURL)
+		}
+
+		formReq := map[string]string{
+			"sessionid": sessionID,
+		}
+
+		path := fmt.Sprintf("tradeoffer/%d/cancel", offerID)
+		if _, commErr := community.PostFormTo[any](ctx, comm, path, formReq); commErr == nil {
+			return fmt.Sprintf("Successfully cancelled offer %d on Steam Community.", offerID), nil
+		}
+	}
+
+	if cancelErr != nil {
+		errStr := strings.ToLower(cancelErr.Error())
+		if strings.Contains(errStr, "cannot cancel") ||
+			strings.Contains(errStr, "already") ||
+			strings.Contains(errStr, "invalid") ||
+			strings.Contains(errStr, "not active") ||
+			strings.Contains(errStr, "state") {
+			return fmt.Sprintf("Offer %d is no longer active on Steam.", offerID), nil
+		}
+
+		return "", fmt.Errorf("failed to cancel offer: %w", cancelErr)
 	}
 
 	return fmt.Sprintf("Successfully cancelled offer %d.", offerID), nil
 }
 
 func (d *Driver) actionCheckEscrow(ctx context.Context, params map[string]string) (string, error) {
-	offerJSON, exists := params["offer"]
-	if !exists {
-		return "", errors.New("check-escrow requires offer parameter")
-	}
-
-	var offer trading.TradeOffer
-	if err := json.Unmarshal([]byte(offerJSON), &offer); err != nil {
-		return "", fmt.Errorf("failed to unmarshal offer: %w", err)
-	}
-
 	webMod := web.From(d.client)
 	if webMod == nil {
 		return "", errors.New("web module not registered or loaded")
 	}
 
-	hasEscrow, err := webMod.CheckEscrow(ctx, &offer)
+	var targetOffer *trading.TradeOffer
+
+	if offerIDStr, ok := params["offer_id"]; ok && offerIDStr != "" {
+		offerID, err := strconv.ParseUint(offerIDStr, 10, 64)
+		if err == nil && offerID != 0 {
+			fetched, err := webMod.GetOffer(ctx, offerID)
+			if err == nil && fetched != nil {
+				targetOffer = fetched
+			}
+		}
+	}
+
+	if targetOffer == nil {
+		offerJSON, exists := params["offer"]
+		if !exists {
+			return "", errors.New("check-escrow requires offer or offer_id parameter")
+		}
+
+		var offer trading.TradeOffer
+		if err := json.Unmarshal([]byte(offerJSON), &offer); err != nil {
+			return "", fmt.Errorf("failed to unmarshal offer: %w", err)
+		}
+
+		targetOffer = &offer
+
+		if targetOffer.ID != 0 {
+			fetched, err := webMod.GetOffer(ctx, targetOffer.ID)
+			if err == nil && fetched != nil {
+				targetOffer = fetched
+			}
+		}
+	}
+
+	hasEscrow, err := webMod.CheckEscrow(ctx, targetOffer)
 	if err != nil {
+		if targetOffer != nil && targetOffer.IsOurOffer {
+			// Sent (outgoing) trade offer pages on Steam Community do not embed recipient escrow variables in HTML.
+			return "false", nil
+		}
+
 		return "", fmt.Errorf("failed to check escrow: %w", err)
 	}
 
@@ -513,10 +573,12 @@ func (d *Driver) resolveTradeOffers(offers []*trading.TradeOffer) ([]byte, error
 	}
 
 	type richOffer struct {
-		ID           uint64     `json:"id"`
-		OtherSteamID string     `json:"other_steam_id"`
-		ItemsGive    []richItem `json:"items_to_give"`
-		ItemsReceive []richItem `json:"items_to_receive"`
+		ID              uint64             `json:"id"`
+		State           trading.OfferState `json:"state"`
+		TradeOfferState trading.OfferState `json:"trade_offer_state"`
+		OtherSteamID    string             `json:"other_steam_id"`
+		ItemsGive       []richItem         `json:"items_to_give"`
+		ItemsReceive    []richItem         `json:"items_to_receive"`
 	}
 
 	richOffers := make([]richOffer, len(offers))
@@ -527,10 +589,12 @@ func (d *Driver) resolveTradeOffers(offers []*trading.TradeOffer) ([]byte, error
 		}
 
 		rich := richOffer{
-			ID:           o.ID,
-			OtherSteamID: partnerSteamID.String(),
-			ItemsGive:    make([]richItem, len(o.ItemsToGive)),
-			ItemsReceive: make([]richItem, len(o.ItemsToReceive)),
+			ID:              o.ID,
+			State:           o.State,
+			TradeOfferState: o.State,
+			OtherSteamID:    partnerSteamID.String(),
+			ItemsGive:       make([]richItem, len(o.ItemsToGive)),
+			ItemsReceive:    make([]richItem, len(o.ItemsToReceive)),
 		}
 
 		for idx, it := range o.ItemsToGive {
