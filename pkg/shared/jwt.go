@@ -1,4 +1,4 @@
-// Copyright (c) 2026 lemon4ksan. All rights reserved.
+// Copyright (c) 2026 vlhltf. All rights reserved.
 // Use of this source code is governed by a proprietary license.
 
 package shared
@@ -10,8 +10,8 @@ import (
 	"strings"
 )
 
-// ExtractSteamIDFromJWT decodes the payload of a JWT refresh token and returns
-// the "sub" claim as a uint64 SteamID. Returns 0 if extraction fails.
+// ExtractSteamIDFromJWT extracts the 64-bit SteamID from the "sub" claim of a Steam JWT refresh token.
+// Returns 0 if decoding fails or the token structure is invalid.
 func ExtractSteamIDFromJWT(refreshToken string) uint64 {
 	parts := strings.Split(refreshToken, ".")
 	if len(parts) != 3 {
@@ -39,10 +39,10 @@ func ExtractSteamIDFromJWT(refreshToken string) uint64 {
 		return 0
 	}
 
-	id, err := strconv.ParseUint(claims.Sub, 10, 64)
+	steamID, err := strconv.ParseUint(claims.Sub, 10, 64)
 	if err != nil {
 		return 0
 	}
 
-	return id
+	return steamID
 }

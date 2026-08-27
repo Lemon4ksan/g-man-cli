@@ -13,12 +13,15 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
 
 	"github.com/lemon4ksan/aoni"
-	"github.com/lemon4ksan/aoni/request"
+	"github.com/lemon4ksan/foundation/async/event"
+	log "github.com/lemon4ksan/foundation/async/logkit"
+	"github.com/lemon4ksan/foundation/async/task"
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
@@ -27,9 +30,6 @@ import (
 	tr "github.com/lemon4ksan/g-man/pkg/steam/transport"
 	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
-	"github.com/lemon4ksan/miyako/bus"
-	"github.com/lemon4ksan/miyako/jobs"
-	"github.com/lemon4ksan/miyako/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -60,7 +60,7 @@ func (m *mockCoordinatorProvider) Call(
 	ctx context.Context,
 	appID, msgType uint32,
 	msg proto.Message,
-	cb jobs.Callback[*protocol.GCPacket],
+	cb task.Callback[*protocol.GCPacket],
 ) error {
 	if cb != nil {
 		go cb(ctx, nil, nil)
@@ -73,7 +73,7 @@ func (m *mockCoordinatorProvider) CallRaw(
 	ctx context.Context,
 	appID, msgType uint32,
 	payload []byte,
-	cb jobs.Callback[*protocol.GCPacket],
+	cb task.Callback[*protocol.GCPacket],
 ) error {
 	if cb != nil {
 		go cb(ctx, nil, nil)
@@ -95,8 +95,9 @@ func (m *mockServiceDoer) Do(ctx context.Context, req *tr.Request) (*tr.Response
 }
 
 type mockCommunityRequester struct {
-	request.Requester
+	*aoni.Client
 	sessionIDFunc func(baseURL string) string
+	restMock      *mockRestRequester
 }
 
 func (m *mockCommunityRequester) SessionID(baseURL string) string {
@@ -156,7 +157,17 @@ func getUnexportedField(target any, fieldName string) reflect.Value {
 }
 
 func setUnexportedField(target any, fieldName string, value any) {
-	getUnexportedField(target, fieldName).Set(reflect.ValueOf(value))
+	field := getUnexportedField(target, fieldName)
+	if field.Type() == reflect.TypeOf(atomic.Pointer[schema.Schema]{}) {
+		if sch, ok := value.(*schema.Schema); ok {
+			var ptr atomic.Pointer[schema.Schema]
+			ptr.Store(sch)
+			field.Set(reflect.ValueOf(ptr))
+			return
+		}
+	}
+
+	field.Set(reflect.ValueOf(value))
 }
 
 func setSOCacheItems(soCache *tf2.SOCache, items []*tf2.Item) {
@@ -188,7 +199,7 @@ func setupDriver(
 	t *testing.T,
 ) (*Driver, *tf2.TF2, *backpack.Backpack, *schema.Manager, *web.Manager, *mockCoordinatorProvider, *mockServiceDoer, *mockCommunityRequester) {
 	logger := log.Discard
-	busObj := bus.New()
+	busObj := event.New()
 
 	cfg := steam.DefaultConfig()
 	cfg.DisableSocket = true
@@ -236,7 +247,8 @@ func setupDriver(
 	doerMock := &mockServiceDoer{}
 	restMock := &mockRestRequester{}
 	commMock := &mockCommunityRequester{
-		Requester: restMock,
+		Client:   aoni.NewClient(restMock),
+		restMock: restMock,
 	}
 
 	setUnexportedField(webMod, "web", doerMock)
@@ -461,7 +473,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 		},
 	}
 	{
-		var sl []*tf2.Item
+		sl := make([]*tf2.Item, 0, len(itemsMap))
 		for _, v := range itemsMap {
 			sl = append(sl, v)
 		}
@@ -648,7 +660,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	_, err = d.ExecuteAction(ctx, "send-offer", map[string]string{"offer_params": "{"}) // invalid json
 	assert.Error(t, err)
 
-	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
+	commMock.restMock.requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
 		respJSON := `{"tradeofferid":"987654"}`
 
 		return &http.Response{
@@ -696,7 +708,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	_, err = d.ExecuteAction(ctx, "check-escrow", map[string]string{"offer": "{"})
 	assert.Error(t, err)
 
-	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
+	commMock.restMock.requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
 		html := `<html><body><script>var g_daysMyEscrow = 0; var g_daysTheirEscrow = 0;</script></body></html>`
 
 		return &http.Response{
@@ -739,7 +751,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	_, err = d.ExecuteAction(ctx, "get-partner-inventory", map[string]string{"partner_id": "invalid"})
 	assert.Error(t, err)
 
-	commMock.Requester.(*mockRestRequester).requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
+	commMock.restMock.requestFunc = func(ctx context.Context, method, path string, mods ...aoni.RequestModifier) (*http.Response, error) {
 		inventoryJSON := `{
 			"success": true,
 			"total_inventory_count": 1,
@@ -910,7 +922,7 @@ func TestDriver_ExecuteAction(t *testing.T) {
 	itemsMap[123] = &tf2.Item{ID: 123, DefIndex: 5021, Quality: 6, Quantity: 1, IsTradable: true, SKU: "5021;6"}
 	itemsMap[126] = &tf2.Item{ID: 126, DefIndex: 5002, Quality: 1, Quantity: 2, IsTradable: true, SKU: "5002;6"}
 	{
-		var sl []*tf2.Item
+		sl := make([]*tf2.Item, 0, len(itemsMap))
 		for _, v := range itemsMap {
 			sl = append(sl, v)
 		}
@@ -971,14 +983,6 @@ func TestExtractQuotedString(t *testing.T) {
 			assert.Equal(t, tc.expected, res, "for input: %s", tc.input)
 		}
 	}
-}
-
-type mockRounder struct {
-	roundTrip func(req *http.Request) (*http.Response, error)
-}
-
-func (m *mockRounder) RoundTrip(req *http.Request) (*http.Response, error) {
-	return m.roundTrip(req)
 }
 
 type mockHTTPClient struct {

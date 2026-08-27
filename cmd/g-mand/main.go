@@ -16,8 +16,8 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
+	log "github.com/lemon4ksan/foundation/async/logkit"
 	"github.com/lemon4ksan/g-man/pkg/storage/jsonfile"
-	"github.com/lemon4ksan/miyako/log"
 	"google.golang.org/grpc"
 
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"

@@ -6,13 +6,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
-	"github.com/lemon4ksan/miyako/log"
+	log "github.com/lemon4ksan/foundation/async/logkit"
+	"github.com/lemon4ksan/foundation/codec/json"
 
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )

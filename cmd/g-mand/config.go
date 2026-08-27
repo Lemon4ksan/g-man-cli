@@ -11,7 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lemon4ksan/miyako/generic"
+	"github.com/lemon4ksan/foundation/generic"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 	"github.com/lemon4ksan/g-man-cli/pkg/shared"

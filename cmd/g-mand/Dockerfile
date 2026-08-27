@@ -4,6 +4,8 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /app
 
+ENV GOPRIVATE=github.com/vlhltf/*
+
 COPY go.mod go.sum ./
 
 RUN --mount=type=secret,id=github_token,target=/run/secrets/github_token \

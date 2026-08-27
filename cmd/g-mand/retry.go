@@ -9,8 +9,8 @@ import (
 	"errors"
 	"time"
 
+	log "github.com/lemon4ksan/foundation/async/logkit"
 	"github.com/lemon4ksan/g-man/pkg/steam/service"
-	"github.com/lemon4ksan/miyako/log"
 )
 
 const (

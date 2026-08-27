@@ -15,9 +15,9 @@ import (
 	"github.com/lemon4ksan/aoni/netutil/dns"
 	"github.com/lemon4ksan/aoni/netutil/proxy"
 	"github.com/lemon4ksan/aoni/option"
+	log "github.com/lemon4ksan/foundation/async/logkit"
+	"github.com/lemon4ksan/foundation/generic"
 	"github.com/lemon4ksan/g-man/pkg/steam"
-	"github.com/lemon4ksan/miyako/generic"
-	"github.com/lemon4ksan/miyako/log"
 )
 
 // setupProxy configures socket proxies for Steam Connection Manager (CM),

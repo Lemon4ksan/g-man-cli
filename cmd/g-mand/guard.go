@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	steamguard "github.com/lemon4ksan/g-man/pkg/steam/guard"
-	"github.com/lemon4ksan/miyako/log"
+	log "github.com/lemon4ksan/foundation/async/logkit"
+	"github.com/lemon4ksan/g-man/pkg/steam/guard"
 
 	gd "github.com/lemon4ksan/g-man-cli/pkg/guard/driver"
 	"github.com/lemon4ksan/g-man-cli/pkg/shared"
@@ -113,11 +113,11 @@ func (d *Daemon) configureGuardian(sharedSecret, identitySecret, deviceID, accou
 
 	d.updateEnvFile(sharedSecret, identitySecret, deviceID, accountName, refreshToken)
 
-	g := steamguard.From(d.client)
+	g := guard.From(d.client)
 	if g == nil {
 		d.logger.Info("Registering dynamic Guardian module in memory")
 
-		newG, err := steamguard.New(steamguard.Config{
+		newG, err := guard.New(guard.Config{
 			SharedSecret:   sharedSecret,
 			IdentitySecret: identitySecret,
 			DeviceID:       deviceID,
@@ -130,7 +130,7 @@ func (d *Daemon) configureGuardian(sharedSecret, identitySecret, deviceID, accou
 		d.client.RegisterModule(newG)
 	} else {
 		d.logger.Info("Updating running Guardian module config in memory")
-		g.SetConfig(steamguard.Config{
+		g.SetConfig(guard.Config{
 			SharedSecret:   sharedSecret,
 			IdentitySecret: identitySecret,
 			DeviceID:       deviceID,

@@ -1,10 +1,12 @@
 FROM golang:1.26-alpine AS builder
 
+# Install git and ca-certificates to fetch private go modules
+RUN apk add --no-cache git ca-certificates
+
 WORKDIR /app
 
 COPY go.mod go.sum ./
 
-# Download dependencies
 RUN go mod download
 
 COPY . .

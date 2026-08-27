@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lemon4ksan/miyako/log"
+	log "github.com/lemon4ksan/foundation/async/logkit"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"

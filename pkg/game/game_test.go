@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
-	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
+	tf2d "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
 )
 
 func TestGameRegistry(t *testing.T) {
@@ -28,7 +28,7 @@ func TestGameRegistry(t *testing.T) {
 	require.NoError(t, err)
 
 	r := game.NewRegistry()
-	driver := tf2driver.New(client)
+	driver := tf2d.New(client)
 
 	_, found := r.Get(440)
 	assert.False(t, found)
@@ -66,7 +66,7 @@ func TestTF2DriverLifecycleAndQueries(t *testing.T) {
 
 	defer client.Close()
 
-	d := tf2driver.New(client)
+	d := tf2d.New(client)
 	ctx := context.Background()
 
 	assert.Equal(t, uint32(440), d.AppID())
@@ -85,7 +85,7 @@ func TestTF2DriverActionErrors(t *testing.T) {
 	client, err := steam.NewClient(cfg)
 	require.NoError(t, err)
 
-	d := tf2driver.New(client)
+	d := tf2d.New(client)
 	ctx := context.Background()
 
 	_, err = d.GetInventory(ctx)

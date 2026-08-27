@@ -5,31 +5,37 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 )
 
-// Registry manages the collection of registered game drivers.
+// Sentinel errors for game driver registry operations.
+var (
+	ErrDriverAlreadyRegistered = errors.New("game driver already registered for appid")
+)
+
+// Registry manages a thread-safe catalog of active game drivers indexed by their AppID.
 type Registry struct {
 	mu      sync.RWMutex
 	drivers map[uint32]Driver
 }
 
-// NewRegistry creates a new Game Driver Registry.
+// NewRegistry constructs a new Game Driver Registry instance.
 func NewRegistry() *Registry {
 	return &Registry{
 		drivers: make(map[uint32]Driver),
 	}
 }
 
-// Register adds a driver to the registry. Returns an error if the AppID is already registered.
+// Register registers a game driver. Returns [ErrDriverAlreadyRegistered] if the AppID is taken.
 func (r *Registry) Register(d Driver) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	appid := d.AppID()
 	if _, exists := r.drivers[appid]; exists {
-		return fmt.Errorf("game driver for appid %d already registered", appid)
+		return fmt.Errorf("%w: %d", ErrDriverAlreadyRegistered, appid)
 	}
 
 	r.drivers[appid] = d
@@ -37,7 +43,7 @@ func (r *Registry) Register(d Driver) error {
 	return nil
 }
 
-// Get retrieves a driver by AppID from the registry.
+// Get retrieves a registered game driver by its AppID.
 func (r *Registry) Get(appid uint32) (Driver, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -47,7 +53,7 @@ func (r *Registry) Get(appid uint32) (Driver, bool) {
 	return d, ok
 }
 
-// List returns a copy of all registered drivers.
+// List returns a snapshot slice of all registered game drivers.
 func (r *Registry) List() []Driver {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

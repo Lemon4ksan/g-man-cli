@@ -1,6 +1,5 @@
-// Copyright (c) 2026 Lemon4ksan All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+// Copyright (c) 2026 vlhltf. All rights reserved.
+// Use of this source code is governed by a proprietary license.
 
 package main
 
@@ -57,7 +56,7 @@ func main() {
 	}
 
 	// Map to merge duplicate blocks
-	// Key: filePathAndRange (e.g., github.com/lemon4ksan/miyako/bus/bus.go:21.43,26.2)
+	// Key: filePathAndRange (e.g., github.com/lemon4ksan/g-man/pkg/bus/event.go:21.43,26.2)
 	mergedBlocks := make(map[string]*BlockInfo)
 
 	for scanner.Scan() {

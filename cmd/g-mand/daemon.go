@@ -17,13 +17,16 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/lemon4ksan/foundation/async/event"
+	log "github.com/lemon4ksan/foundation/async/logkit"
+	"github.com/lemon4ksan/foundation/generic"
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/behavior"
 	"github.com/lemon4ksan/g-man/pkg/behavior/achievements"
 	"github.com/lemon4ksan/g-man/pkg/behavior/guard"
-	sessionbehavior "github.com/lemon4ksan/g-man/pkg/behavior/session"
+	"github.com/lemon4ksan/g-man/pkg/behavior/session"
 	"github.com/lemon4ksan/g-man/pkg/steam"
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
 	"github.com/lemon4ksan/g-man/pkg/steam/protocol/enums"
@@ -38,14 +41,12 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/notifications"
 	"github.com/lemon4ksan/g-man/pkg/storage"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
-	"github.com/lemon4ksan/miyako/bus"
-	"github.com/lemon4ksan/miyako/generic"
-	"github.com/lemon4ksan/miyako/log"
 
 	"github.com/lemon4ksan/g-man-cli/pkg/game"
 	"github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 	"github.com/lemon4ksan/g-man-cli/pkg/shared"
-	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
+	tf2d "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
+	"github.com/lemon4ksan/g-man-cli/pkg/tf2/ecp"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
@@ -79,8 +80,9 @@ type Daemon struct {
 	tf2       *tf2.TF2
 	schemaMgr *schema.Manager
 	registry  *game.Registry
+	ecpEngine *ecp.EasyCopyPaste
 	priceMgr  *ManualPriceManager
-	sub       *bus.Subscription
+	sub       *event.Subscription
 	wg        sync.WaitGroup
 
 	mu           sync.RWMutex
@@ -153,7 +155,7 @@ func NewDaemon(
 	}
 
 	registry := game.NewRegistry()
-	if err := registry.Register(tf2driver.New(client)); err != nil {
+	if err := registry.Register(tf2d.New(client)); err != nil {
 		return nil, fmt.Errorf("failed to register TF2 driver: %w", err)
 	}
 
@@ -173,6 +175,7 @@ func NewDaemon(
 		tf2:          tf2Mod,
 		schemaMgr:    schema.From(client),
 		registry:     registry,
+		ecpEngine:    ecp.New(),
 		priceMgr:     NewManualPriceManager(cfg.ManualPricesPath, logger),
 		uptimeStart:  time.Now(),
 		shutdownCtx:  shutdownCtx,
@@ -180,6 +183,8 @@ func NewDaemon(
 		isLocked:     isLocked,
 		unlockChan:   make(chan unlockRequest),
 	}
+
+	d.setupChatCommands()
 
 	return d, nil
 }
@@ -480,7 +485,7 @@ func (d *Daemon) Close() {
 
 func (d *Daemon) setupBehaviors() {
 	orch := behavior.From(d.client)
-	sessionbehavior.KeepAlive(d.client, sessionbehavior.Config{})
+	session.KeepAlive(d.client, session.Config{})
 
 	guardBehaviorCfg := guard.Config{
 		AutoAcceptTypes: generic.NewSet(
@@ -544,11 +549,11 @@ func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 	)
 
 	if acc != nil {
-		info := acc.GetAccountInfo()
+		info := acc.Info()
 		personaName = info.PersonaName
 		ipCountry = info.IPCountry
 
-		wallet := acc.GetWalletInfo()
+		wallet := acc.Wallet()
 		walletBalance = wallet.Balance
 
 		curCode := enums.ECurrencyCode(wallet.Currency)
@@ -558,12 +563,12 @@ func (d *Daemon) GetStatus(ctx context.Context, req *pb.GetStatusRequest) (*pb.G
 			walletCurrency = curCode.String()
 		}
 
-		limitations := acc.GetLimitations()
+		limitations := acc.Limitations()
 		isLimited = limitations.IsLimitedAccount
 		isCommunityBanned = limitations.IsCommunityBanned
 
-		vacBansCount = acc.GetVACBans().NumBans
-		emailAddress = acc.GetEmailInfo().EmailAddress
+		vacBansCount = acc.VACBans().NumBans
+		emailAddress = acc.Email().EmailAddress
 	}
 
 	return &pb.GetStatusResponse{

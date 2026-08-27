@@ -17,17 +17,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lemon4ksan/miyako/generic"
+	"github.com/lemon4ksan/foundation/generic"
 	"github.com/skip2/go-qrcode"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/lemon4ksan/g-man-cli/internal/cli/builder"
+	"github.com/lemon4ksan/g-man-cli/internal/cli/output"
 	"github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
-	"github.com/lemon4ksan/g-man-cli/pkg/guard/driver"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
-// Sentinel errors for Steam Guard CLI management.
 var (
 	ErrMissingAuthCode         = errors.New("missing authentication code")
 	ErrMissingConfirmationID   = errors.New("missing confirmation ID")
@@ -40,294 +41,392 @@ var (
 	ErrMissingEncryptedPathDec = errors.New("missing encrypted file path")
 )
 
-func printGuardUsage() {
-	gd := driver.New(nil)
+var (
+	flagQRFormat string
+	flagQRAscii  bool
+)
 
-	for line := range strings.SplitSeq(gd.Usage(), "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			fmt.Println()
-			continue
-		}
+var guardCmd = initGuardCmd()
 
-		if strings.HasSuffix(trimmed, ":") {
-			fmt.Printf("%s%s%s%s\n", ColorCyan, ColorBold, line, ColorReset)
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "-") {
-			fmt.Println(line)
-			continue
-		}
-
-		indent := len(line) - len(strings.TrimLeft(line, " "))
-		fmt.Printf("%s%s%s\n", line[:indent], "guard ", trimmed)
-	}
-}
-
-func handleGuardCommand(ctx context.Context, client pb.DaemonServiceClient, subcmd string, args []string) error {
-	switch subcmd {
-	case "help":
-		printGuardUsage()
-		return nil
-	case "auth":
-		return handleGuardAuth(ctx, client, args)
-	case "status":
-		return handleGuardStatusCmd(ctx, client)
-	case "code":
-		return handleGuardCodeCmd(ctx, client)
-	case "list":
-		return handleGuardListCmd(ctx, client)
-	case "accept", "approve":
-		return handleGuardRespondCmd(ctx, client, args, true)
-	case "cancel":
-		return handleGuardRespondCmd(ctx, client, args, false)
-	case "accept-all":
-		return handleGuardRespondAllCmd(ctx, client, true)
-	case "cancel-all":
-		return handleGuardRespondAllCmd(ctx, client, false)
-	case "transfer":
-		return handleGuardTransfer(ctx, client)
-	case "link":
-		return handleGuardLink(ctx, client)
-	case "import":
-		return handleGuardImportCmd(ctx, client, args)
-	case "qr":
-		return handleGuardQR(ctx, client, args)
-	case "encrypt":
-		return handleGuardEncryptFile(args)
-	case "decrypt":
-		return handleGuardDecryptFile(args)
-	case "unlock":
-		return handleGuardUnlockDaemon(ctx, client)
-	case "encrypt-env":
-		return handleGuardEncryptEnv()
-	case "decrypt-env":
-		return handleGuardDecryptEnv()
-	default:
-		return fmt.Errorf("unknown guard subcommand: %s", subcmd)
-	}
-}
-
-func handleGuardAuth(ctx context.Context, client pb.DaemonServiceClient, args []string) error {
-	if len(args) < 1 {
-		return ErrMissingAuthCode
+func initGuardCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:   "guard",
+		Short: "Manage Steam Guard mobile authenticator, 2FA codes, confirmations and crypto secrets",
+		Long:  "Provides 2FA code generation, trade confirmations management, maFile import/export, and AES-256 encrypted credential vaults.",
 	}
 
-	resp, err := client.GuardSubmitAuthCode(ctx, &pb.GuardSubmitAuthCodeRequest{Code: args[0]})
-	if err != nil {
-		return err
-	}
+	authCmd := builder.New("auth <code>").
+		Short("Submit interactive 2FA SMS or Email login code").
+		Args(cobra.ExactArgs(1)).
+		Run(func(c *builder.Context) error {
+			resp, err := c.Client.GuardSubmitAuthCode(c.Ctx, &pb.GuardSubmitAuthCodeRequest{Code: c.Args[0]})
+			if err != nil {
+				return err
+			}
 
-	fmt.Println(resp.GetMessage())
+			return c.Render(resp, func() error {
+				fmt.Println(resp.GetMessage())
+				return nil
+			})
+		})
 
-	return nil
-}
+	statusSubCmd := builder.New("status").
+		Short("Show Steam Guard status and device info").
+		Run(func(c *builder.Context) error {
+			resp, err := c.Client.GuardStatus(c.Ctx, &pb.GuardStatusRequest{})
+			if err != nil {
+				return err
+			}
 
-func handleGuardStatusCmd(ctx context.Context, client pb.DaemonServiceClient) error {
-	resp, err := client.GuardStatus(ctx, &pb.GuardStatusRequest{})
-	if err != nil {
-		return err
-	}
+			return c.Render(resp, func() error {
+				fmt.Println(output.TitleStyle.Render("=== Steam Guard Status ==="))
+				fmt.Printf("Configured: %v\nDevice ID:  %s\nSteam ID:   %s\nState:      %d\n",
+					resp.GetConfigured(), resp.GetDeviceId(), resp.GetSteamId(), resp.GetState())
 
-	fmt.Printf("=== Steam Guard Status ===\nConfigured: %v\nDevice ID:  %s\nSteam ID:   %s\nState:      %d\n",
-		resp.GetConfigured(), resp.GetDeviceId(), resp.GetSteamId(), resp.GetState())
+				return nil
+			})
+		})
 
-	return nil
-}
+	codeCmd := builder.New("code").
+		Short("Generate current 2FA Steam Guard login code").
+		Run(func(c *builder.Context) error {
+			resp, err := c.Client.GuardCode(c.Ctx, &pb.GuardCodeRequest{})
+			if err != nil {
+				return err
+			}
 
-func handleGuardCodeCmd(ctx context.Context, client pb.DaemonServiceClient) error {
-	resp, err := client.GuardCode(ctx, &pb.GuardCodeRequest{})
-	if err != nil {
-		return err
-	}
+			return c.Render(resp, func() error {
+				fmt.Printf("Steam Guard Code: %s\n", output.SuccessStyle.Render(resp.GetCode()))
+				return nil
+			})
+		})
 
-	fmt.Printf("Steam Guard Code: %s%s%s\n", ColorGreen, resp.GetCode(), ColorReset)
+	listCmd := builder.New("list").
+		Short("List pending trade and market confirmations").
+		Run(func(c *builder.Context) error {
+			resp, err := c.Client.GuardList(c.Ctx, &pb.GuardListRequest{})
+			if err != nil {
+				return err
+			}
 
-	return nil
-}
+			return c.Render(resp, func() error {
+				fmt.Println(
+					output.TitleStyle.Render(
+						fmt.Sprintf("=== Pending Confirmations (%d) ===", len(resp.GetConfirmations())),
+					),
+				)
 
-func handleGuardListCmd(ctx context.Context, client pb.DaemonServiceClient) error {
-	resp, err := client.GuardList(ctx, &pb.GuardListRequest{})
-	if err != nil {
-		return err
-	}
+				for _, conf := range resp.GetConfirmations() {
+					fmt.Printf("[%d] %s (Type: %s, Description: %s)\n",
+						conf.GetId(), conf.GetTitle(), conf.GetTypeName(), conf.GetDescription())
+				}
 
-	fmt.Printf("=== Pending Confirmations (%d) ===\n", len(resp.GetConfirmations()))
+				return nil
+			})
+		})
 
-	for _, conf := range resp.GetConfirmations() {
-		fmt.Printf("[%d] %s (Type: %s, Description: %s)\n",
-			conf.GetId(), conf.GetTitle(), conf.GetTypeName(), conf.GetDescription())
-	}
+	acceptCmd := builder.New("accept <id>").
+		Short("Approve a pending confirmation by ID").
+		Aliases("approve").
+		Args(cobra.ExactArgs(1)).
+		Run(func(c *builder.Context) error {
+			confID, err := strconv.ParseUint(c.Args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid confirmation ID %q: %w", c.Args[0], err)
+			}
 
-	return nil
-}
+			resp, err := c.Client.GuardRespond(c.Ctx, &pb.GuardRespondRequest{
+				ConfirmationId: confID,
+				Accept:         true,
+			})
+			if err != nil {
+				return err
+			}
 
-func handleGuardRespondCmd(ctx context.Context, client pb.DaemonServiceClient, args []string, accept bool) error {
-	if len(args) < 1 {
-		return ErrMissingConfirmationID
-	}
+			if !resp.GetSuccess() {
+				return errors.New(resp.GetMessage())
+			}
 
-	confID, err := strconv.ParseUint(args[0], 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid confirmation ID: %w", err)
-	}
+			return c.Render(resp, func() error {
+				c.Renderer.Success("Confirmation approved successfully.")
+				return nil
+			})
+		})
 
-	resp, err := client.GuardRespond(ctx, &pb.GuardRespondRequest{
-		ConfirmationId: confID,
-		Accept:         accept,
-	})
-	if err != nil {
-		return err
-	}
+	cancelCmd := builder.New("cancel <id>").
+		Short("Decline/Cancel a pending confirmation by ID").
+		Args(cobra.ExactArgs(1)).
+		Run(func(c *builder.Context) error {
+			confID, err := strconv.ParseUint(c.Args[0], 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid confirmation ID %q: %w", c.Args[0], err)
+			}
 
-	if !resp.GetSuccess() {
-		return errors.New(resp.GetMessage())
-	}
+			resp, err := c.Client.GuardRespond(c.Ctx, &pb.GuardRespondRequest{
+				ConfirmationId: confID,
+				Accept:         false,
+			})
+			if err != nil {
+				return err
+			}
 
-	actionStr := "approved"
-	if !accept {
-		actionStr = "cancelled"
-	}
+			if !resp.GetSuccess() {
+				return errors.New(resp.GetMessage())
+			}
 
-	fmt.Printf("Confirmation %s successfully.\n", actionStr)
+			return c.Render(resp, func() error {
+				c.Renderer.Success("Confirmation cancelled successfully.")
+				return nil
+			})
+		})
 
-	return nil
-}
+	acceptAllCmd := builder.New("accept-all").
+		Short("Approve all pending confirmations").
+		Run(func(c *builder.Context) error {
+			resp, err := c.Client.GuardRespond(c.Ctx, &pb.GuardRespondRequest{
+				All:    true,
+				Accept: true,
+			})
+			if err != nil {
+				return err
+			}
 
-func handleGuardRespondAllCmd(ctx context.Context, client pb.DaemonServiceClient, accept bool) error {
-	resp, err := client.GuardRespond(ctx, &pb.GuardRespondRequest{
-		All:    true,
-		Accept: accept,
-	})
-	if err != nil {
-		return err
-	}
+			if !resp.GetSuccess() {
+				return errors.New(resp.GetMessage())
+			}
 
-	if !resp.GetSuccess() {
-		return errors.New(resp.GetMessage())
-	}
+			return c.Render(resp, func() error {
+				c.Renderer.Success("All confirmations approved successfully.")
+				return nil
+			})
+		})
 
-	actionStr := "approved"
-	if !accept {
-		actionStr = "cancelled"
-	}
+	cancelAllCmd := builder.New("cancel-all").
+		Short("Decline/Cancel all pending confirmations").
+		Run(func(c *builder.Context) error {
+			resp, err := c.Client.GuardRespond(c.Ctx, &pb.GuardRespondRequest{
+				All:    true,
+				Accept: false,
+			})
+			if err != nil {
+				return err
+			}
 
-	fmt.Printf("All confirmations %s successfully.\n", actionStr)
+			if !resp.GetSuccess() {
+				return errors.New(resp.GetMessage())
+			}
 
-	return nil
-}
+			return c.Render(resp, func() error {
+				c.Renderer.Success("All confirmations cancelled successfully.")
+				return nil
+			})
+		})
 
-func handleGuardTransfer(ctx context.Context, client pb.DaemonServiceClient) error {
-	fmt.Println(
-		"Beginning transfer of mobile authenticator...\nWarning: You can't transfer an authenticator without a phone number on the account.",
+	transferCmd := builder.New("transfer").
+		Short("Transfer existing mobile authenticator via SMS").
+		Run(func(c *builder.Context) error {
+			fmt.Println(
+				"Beginning transfer of mobile authenticator...\nWarning: You can't transfer an authenticator without a phone number on the account.",
+			)
+
+			resp, err := c.Client.GuardTransferStart(c.Ctx, &pb.GuardTransferStartRequest{})
+			if err != nil {
+				return err
+			}
+
+			fmt.Println(resp.GetMessage())
+
+			var smsCode string
+
+			fmt.Print("Enter SMS verification code: ")
+
+			if _, err := fmt.Scanln(&smsCode); err != nil {
+				return fmt.Errorf("failed to read SMS code: %w", err)
+			}
+
+			finishResp, err := c.Client.GuardTransferFinish(c.Ctx, &pb.GuardTransferFinishRequest{
+				SmsCode: strings.TrimSpace(smsCode),
+			})
+			if err != nil {
+				return err
+			}
+
+			return c.Render(finishResp, func() error {
+				c.Renderer.Success("Transfer completed successfully!")
+				fmt.Println("==========================================================")
+				fmt.Printf(
+					"Shared Secret:    %s\nIdentity Secret:  %s\nRevocation Code:  %s\nDevice ID:        %s\nURI:              %s\n",
+					finishResp.GetSharedSecret(),
+					finishResp.GetIdentitySecret(),
+					finishResp.GetRevocationCode(),
+					finishResp.GetDeviceId(),
+					finishResp.GetUri(),
+				)
+				fmt.Println("==========================================================")
+
+				return nil
+			})
+		})
+
+	linkCmd := builder.New("link").
+		Short("Link a new Steam Guard mobile authenticator").
+		Run(func(c *builder.Context) error {
+			var deviceID string
+
+			fmt.Print("Enter Device ID (leave empty to generate): ")
+
+			_, _ = fmt.Scanln(&deviceID)
+
+			startResp, err := c.Client.GuardLinkStart(
+				c.Ctx,
+				&pb.GuardLinkStartRequest{DeviceId: strings.TrimSpace(deviceID)},
+			)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("Successfully registered with Steam.\nPhoneNumberHint: %s\nRevocation Code: %s\n",
+				startResp.GetPhoneNumberHint(), startResp.GetRevocationCode())
+
+			var smsCode string
+
+			fmt.Print("Enter verification code (SMS/Email): ")
+
+			if _, err := fmt.Scanln(&smsCode); err != nil {
+				return fmt.Errorf("failed to read SMS code: %w", err)
+			}
+
+			finalizeResp, err := c.Client.GuardLinkFinalize(c.Ctx, &pb.GuardLinkFinalizeRequest{
+				SharedSecret:   startResp.GetSharedSecret(),
+				ServerTime:     startResp.GetServerTime(),
+				SmsCode:        strings.TrimSpace(smsCode),
+				IdentitySecret: startResp.GetIdentitySecret(),
+				DeviceId:       startResp.GetDeviceId(),
+			})
+			if err != nil {
+				return err
+			}
+
+			return c.Render(finalizeResp, func() error {
+				fmt.Println(finalizeResp.GetMessage())
+				return nil
+			})
+		})
+
+	importCmd := builder.New("import <file.maFile>").
+		Short("Import Steam Guard credentials from SDA .maFile").
+		Long("Imports secrets from an SDA .maFile. If the daemon is running, syncs in-memory; otherwise, writes directly to .env.").
+		Args(cobra.ExactArgs(1)).
+		Run(func(c *builder.Context) error {
+			return handleGuardImport(c.Ctx, c.Client, c.Args[0])
+		})
+
+	qrCmd := builder.New("qr").
+		Short("Display Steam Guard TOTP 2FA QR code for mobile apps").
+		Run(func(c *builder.Context) error {
+			return handleGuardQR(c.Ctx, c.Client, flagQRFormat, flagQRAscii)
+		})
+	qrCmd.Flags().StringVar(&flagQRFormat, "format", "steam", "QR target app format (steam, bitwarden, keepassxc)")
+	qrCmd.Flags().BoolVar(&flagQRAscii, "ascii", false, "Render full-block ASCII QR code")
+
+	encryptCmd := builder.New("encrypt <file> [out]").
+		Short("Encrypt a file using AES-256-GCM with a passphrase").
+		NoIPC().
+		Args(cobra.RangeArgs(1, 2)).
+		Run(func(c *builder.Context) error {
+			return handleGuardEncryptFile(c.Args)
+		})
+
+	decryptCmd := builder.New("decrypt <file> [out]").
+		Short("Decrypt an AES-256-GCM encrypted file").
+		NoIPC().
+		Args(cobra.RangeArgs(1, 2)).
+		Run(func(c *builder.Context) error {
+			return handleGuardDecryptFile(c.Args)
+		})
+
+	unlockCmd := builder.New("unlock").
+		Short("Unlock encrypted daemon credentials in memory").
+		Run(func(c *builder.Context) error {
+			passphrase, err := readPassphrase("Enter passphrase to unlock daemon: ")
+			if err != nil {
+				return fmt.Errorf("failed to read passphrase: %w", err)
+			}
+
+			resp, err := c.Client.GuardUnlock(c.Ctx, &pb.GuardUnlockRequest{Passphrase: passphrase})
+			if err != nil {
+				return fmt.Errorf("unlock call failed: %w", err)
+			}
+
+			if !resp.GetSuccess() {
+				return fmt.Errorf("failed to unlock: %s", resp.GetMessage())
+			}
+
+			return c.Render(resp, func() error {
+				c.Renderer.Success(resp.GetMessage())
+				return nil
+			})
+		})
+
+	encryptEnvCmd := builder.New("encrypt-env").
+		Short("Encrypt sensitive credentials in local .env").
+		NoIPC().
+		Run(func(c *builder.Context) error {
+			return handleGuardEncryptEnv()
+		})
+
+	decryptEnvCmd := builder.New("decrypt-env").
+		Short("Decrypt sensitive credentials in local .env").
+		NoIPC().
+		Run(func(c *builder.Context) error {
+			return handleGuardDecryptEnv()
+		})
+
+	root.AddCommand(
+		authCmd,
+		statusSubCmd,
+		codeCmd,
+		listCmd,
+		acceptCmd,
+		cancelCmd,
+		acceptAllCmd,
+		cancelAllCmd,
+		transferCmd,
+		linkCmd,
+		importCmd,
+		qrCmd,
+		encryptCmd,
+		decryptCmd,
+		unlockCmd,
+		encryptEnvCmd,
+		decryptEnvCmd,
 	)
 
-	resp, err := client.GuardTransferStart(ctx, &pb.GuardTransferStartRequest{})
-	if err != nil {
-		return err
-	}
-
-	fmt.Println(resp.GetMessage())
-
-	var smsCode string
-
-	fmt.Print("Enter SMS verification code: ")
-
-	if _, err := fmt.Scanln(&smsCode); err != nil {
-		return fmt.Errorf("failed to read SMS code: %w", err)
-	}
-
-	finishResp, err := client.GuardTransferFinish(ctx, &pb.GuardTransferFinishRequest{
-		SmsCode: strings.TrimSpace(smsCode),
-	})
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("\nTransfer completed successfully!")
-	fmt.Println("==========================================================")
-	fmt.Printf(
-		"Shared Secret:    %s\nIdentity Secret:  %s\nRevocation Code:  %s\nDevice ID:        %s\nURI:              %s\n",
-		finishResp.GetSharedSecret(),
-		finishResp.GetIdentitySecret(),
-		finishResp.GetRevocationCode(),
-		finishResp.GetDeviceId(),
-		finishResp.GetUri(),
-	)
-	fmt.Println("==========================================================")
-
-	return nil
+	return root
 }
 
-func handleGuardLink(ctx context.Context, client pb.DaemonServiceClient) error {
-	var deviceID string
-
-	fmt.Print("Enter Device ID (leave empty to generate): ")
-
-	_, _ = fmt.Scanln(&deviceID)
-
-	startResp, err := client.GuardLinkStart(ctx, &pb.GuardLinkStartRequest{DeviceId: strings.TrimSpace(deviceID)})
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf(
-		"Successfully registered with Steam.\nPhoneNumberHint: %s\nRevocation Code: %s\n",
-		startResp.GetPhoneNumberHint(),
-		startResp.GetRevocationCode(),
-	)
-
-	var smsCode string
-
-	fmt.Print("Enter verification code (SMS/Email): ")
-
-	if _, err := fmt.Scanln(&smsCode); err != nil {
-		return fmt.Errorf("failed to read SMS code: %w", err)
-	}
-
-	finalizeResp, err := client.GuardLinkFinalize(ctx, &pb.GuardLinkFinalizeRequest{
-		SharedSecret:   startResp.GetSharedSecret(),
-		ServerTime:     startResp.GetServerTime(),
-		SmsCode:        strings.TrimSpace(smsCode),
-		IdentitySecret: startResp.GetIdentitySecret(),
-		DeviceId:       startResp.GetDeviceId(),
-	})
-	if err != nil {
-		return err
-	}
-
-	fmt.Println(finalizeResp.GetMessage())
-
-	return nil
+type maFilePayload struct {
+	SharedSecret   string `json:"shared_secret"`
+	IdentitySecret string `json:"identity_secret"`
+	DeviceID       string `json:"device_id"`
+	RevocationCode string `json:"revocation_code"`
+	AccountName    string `json:"account_name"`
+	SteamID        string `json:"steam_id"`
+	Tokens         struct {
+		RefreshToken string `json:"refresh_token"`
+	} `json:"tokens"`
+	Session struct {
+		SteamID string `json:"SteamID"`
+	} `json:"Session"`
 }
 
-func handleGuardImportCmd(ctx context.Context, client pb.DaemonServiceClient, args []string) error {
-	if len(args) < 1 {
-		return ErrMissingMaFilePath
-	}
-
-	type maFile struct {
-		SharedSecret   string `json:"shared_secret"`
-		IdentitySecret string `json:"identity_secret"`
-		DeviceID       string `json:"device_id"`
-		RevocationCode string `json:"revocation_code"`
-		AccountName    string `json:"account_name"`
-		SteamID        string `json:"steam_id"`
-		Tokens         struct {
-			RefreshToken string `json:"refresh_token"`
-		} `json:"tokens"`
-		Session struct {
-			SteamID string `json:"SteamID"`
-		} `json:"Session"`
-	}
-
-	fileData, err := readImportFile(args[0])
+func handleGuardImport(ctx context.Context, client pb.DaemonServiceClient, filePath string) error {
+	fileData, err := readImportFile(filePath)
 	if err != nil {
 		return err
 	}
 
-	var ma maFile
+	var ma maFilePayload
 	if err := json.Unmarshal(fileData, &ma); err != nil {
 		return fmt.Errorf("failed to parse maFile JSON: %w", err)
 	}
@@ -339,29 +438,40 @@ func handleGuardImportCmd(ctx context.Context, client pb.DaemonServiceClient, ar
 	steamID := generic.Coalesce(ma.SteamID, ma.Session.SteamID)
 	devID := getOrGenerateDeviceID(ma.DeviceID, steamID, ma.Tokens.RefreshToken)
 
-	resp, err := client.GuardImport(ctx, &pb.GuardImportRequest{
-		SharedSecret:   ma.SharedSecret,
-		IdentitySecret: ma.IdentitySecret,
-		DeviceId:       devID,
-		AccountName:    ma.AccountName,
-		RefreshToken:   ma.Tokens.RefreshToken,
-	})
-	if err != nil {
-		if status.Code(err) == codes.Unavailable {
-			fmt.Println("Daemon is not running. Performing offline import directly to .env...")
-			return handleGuardImportOffline(args)
+	if client != nil {
+		resp, err := client.GuardImport(ctx, &pb.GuardImportRequest{
+			SharedSecret:   ma.SharedSecret,
+			IdentitySecret: ma.IdentitySecret,
+			DeviceId:       devID,
+			AccountName:    ma.AccountName,
+			RefreshToken:   ma.Tokens.RefreshToken,
+		})
+		if err == nil && resp.GetSuccess() {
+			fmt.Println("==========================================================")
+			fmt.Println("Steam Guard credentials imported successfully via daemon!")
+			fmt.Printf("Device ID:  %s\n", ma.DeviceID)
+
+			if ma.RevocationCode != "" {
+				fmt.Printf("Revocation: %s\n", ma.RevocationCode)
+			}
+
+			fmt.Println("==========================================================")
+
+			return nil
 		}
 
-		return err
+		if err != nil && status.Code(err) != codes.Unavailable {
+			return err
+		}
 	}
 
-	if !resp.GetSuccess() {
-		return errors.New(resp.GetMessage())
-	}
+	fmt.Println("Daemon is not running. Performing offline import directly to .env...")
+	updateLocalEnvFile(ma.SharedSecret, ma.IdentitySecret, devID, ma.AccountName, ma.Tokens.RefreshToken)
 
 	fmt.Println("==========================================================")
-	fmt.Println("Steam Guard credentials imported successfully!")
-	fmt.Printf("Device ID:  %s\n", ma.DeviceID)
+	fmt.Println("Offline Steam Guard credentials imported successfully!")
+	fmt.Println("New secrets have been saved to your .env file.")
+	fmt.Printf("Device ID:  %s\n", devID)
 
 	if ma.RevocationCode != "" {
 		fmt.Printf("Revocation: %s\n", ma.RevocationCode)
@@ -372,18 +482,7 @@ func handleGuardImportCmd(ctx context.Context, client pb.DaemonServiceClient, ar
 	return nil
 }
 
-func handleGuardQR(ctx context.Context, client pb.DaemonServiceClient, args []string) error {
-	format := "steam"
-	ascii := false
-
-	for _, arg := range args {
-		if arg == "--ascii" {
-			ascii = true
-		} else if after, ok := strings.CutPrefix(arg, "--format="); ok {
-			format = after
-		}
-	}
-
+func handleGuardQR(ctx context.Context, client pb.DaemonServiceClient, format string, ascii bool) error {
 	statusResp, err := client.GuardStatus(ctx, &pb.GuardStatusRequest{})
 	if err != nil {
 		return err
@@ -412,12 +511,8 @@ func handleGuardQR(ctx context.Context, client pb.DaemonServiceClient, args []st
 	case "bitwarden":
 		qrContent = "steam://" + secretB64
 	case "keepassxc":
-		qrContent = fmt.Sprintf(
-			"otpauth://totp/Steam:%s?secret=%s&period=30&digits=5&issuer=Steam&encoder=steam",
-			url.PathEscape(username),
-			secretB64,
-		)
-
+		qrContent = fmt.Sprintf("otpauth://totp/Steam:%s?secret=%s&period=30&digits=5&issuer=Steam&encoder=steam",
+			url.PathEscape(username), secretB64)
 	default:
 		return fmt.Errorf("unknown QR format: %s", format)
 	}
@@ -447,10 +542,6 @@ func handleGuardQR(ctx context.Context, client pb.DaemonServiceClient, args []st
 }
 
 func handleGuardEncryptFile(args []string) error {
-	if len(args) < 1 {
-		return ErrMissingFilePathEncrypt
-	}
-
 	filePath := args[0]
 
 	fileData, err := os.ReadFile(filePath)
@@ -496,10 +587,6 @@ func handleGuardEncryptFile(args []string) error {
 }
 
 func handleGuardDecryptFile(args []string) error {
-	if len(args) < 1 {
-		return ErrMissingEncryptedPathDec
-	}
-
 	filePath := args[0]
 
 	fileData, err := os.ReadFile(filePath)
@@ -531,26 +618,6 @@ func handleGuardDecryptFile(args []string) error {
 	}
 
 	fmt.Printf("File decrypted successfully and saved to: %s\n", outPath)
-
-	return nil
-}
-
-func handleGuardUnlockDaemon(ctx context.Context, client pb.DaemonServiceClient) error {
-	passphrase, err := readPassphrase("Enter passphrase to unlock daemon: ")
-	if err != nil {
-		return fmt.Errorf("failed to read passphrase: %w", err)
-	}
-
-	resp, err := client.GuardUnlock(ctx, &pb.GuardUnlockRequest{Passphrase: passphrase})
-	if err != nil {
-		return fmt.Errorf("unlock call failed: %w", err)
-	}
-
-	if !resp.GetSuccess() {
-		return fmt.Errorf("failed to unlock: %s", resp.GetMessage())
-	}
-
-	fmt.Println(resp.GetMessage())
 
 	return nil
 }
@@ -606,58 +673,8 @@ func readImportFile(filePath string) ([]byte, error) {
 	return fileData, nil
 }
 
-func handleGuardImportOffline(args []string) error {
-	if len(args) < 1 {
-		return ErrMissingMaFilePath
-	}
-
-	type maFile struct {
-		SharedSecret   string `json:"shared_secret"`
-		IdentitySecret string `json:"identity_secret"`
-		DeviceID       string `json:"device_id"`
-		RevocationCode string `json:"revocation_code"`
-		AccountName    string `json:"account_name"`
-		Tokens         struct {
-			RefreshToken string `json:"refresh_token"`
-		} `json:"tokens"`
-		Session struct {
-			SteamID string `json:"SteamID"`
-		} `json:"Session"`
-	}
-
-	fileData, err := readImportFile(args[0])
-	if err != nil {
-		return err
-	}
-
-	var ma maFile
-	if err := json.Unmarshal(fileData, &ma); err != nil {
-		return fmt.Errorf("failed to parse maFile JSON: %w", err)
-	}
-
-	if ma.SharedSecret == "" || ma.IdentitySecret == "" {
-		return ErrInvalidMaFileSecrets
-	}
-
-	devID := getOrGenerateDeviceID(ma.DeviceID, ma.Session.SteamID, ma.Tokens.RefreshToken)
-	updateLocalEnvFile(ma.SharedSecret, ma.IdentitySecret, devID, ma.AccountName, ma.Tokens.RefreshToken)
-
-	fmt.Println("==========================================================")
-	fmt.Println("Offline Steam Guard credentials imported successfully!")
-	fmt.Println("New secrets have been saved to your .env file.")
-	fmt.Printf("Device ID:  %s\n", devID)
-
-	if ma.RevocationCode != "" {
-		fmt.Printf("Revocation: %s\n", ma.RevocationCode)
-	}
-
-	fmt.Println("==========================================================")
-
-	return nil
-}
-
 func updateLocalEnvFile(sharedSecret, identitySecret, deviceID, accountName, refreshToken string) {
-	envPath := ".env"
+	envPath := getEnvPath()
 	if _, err := os.Stat(envPath); os.IsNotExist(err) {
 		if err := os.WriteFile(envPath, []byte(""), 0o600); err != nil {
 			fmt.Printf("Warning: file %q not found and failed to create one: %v\n", envPath, err)

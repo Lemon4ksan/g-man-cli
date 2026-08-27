@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	log "github.com/lemon4ksan/foundation/async/logkit"
 	"github.com/lemon4ksan/g-man-tf2/pkg/tf2"
 	"github.com/lemon4ksan/g-man/pkg/steam/auth"
 	"github.com/lemon4ksan/g-man/pkg/steam/id"
@@ -20,9 +21,8 @@ import (
 	"github.com/lemon4ksan/g-man/pkg/steam/sys/notifications"
 	"github.com/lemon4ksan/g-man/pkg/trading"
 	"github.com/lemon4ksan/g-man/pkg/trading/web"
-	"github.com/lemon4ksan/miyako/log"
 
-	tf2driver "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
+	tf2d "github.com/lemon4ksan/g-man-cli/pkg/tf2/driver"
 	pb "github.com/lemon4ksan/g-man-cli/proto/daemon"
 )
 
@@ -216,7 +216,7 @@ func (d *Daemon) handleBackpackLoadedEvent(ctx context.Context, itemTotal int) {
 		}
 
 		go func() {
-			if err := driver.(*tf2driver.Driver).RunMaintenance(ctx, d.logger); err != nil {
+			if err := driver.(*tf2d.Driver).RunMaintenance(ctx, d.logger); err != nil {
 				d.logger.Error("Post-load maintenance failed", log.Err(err))
 			}
 		}()

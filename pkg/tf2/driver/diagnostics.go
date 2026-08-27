@@ -217,7 +217,7 @@ func (d *Driver) actionPriceCheck(ctx context.Context, params map[string]string)
 
 	pdbClient := pricedb.NewClient(nil)
 
-	pricesSlice, err := pdbClient.GetItemsBulk(ctx, []string{skuStr})
+	pricesSlice, err := pricedb.GetItemsBulk(ctx, pdbClient, []string{skuStr})
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch price: %w", err)
 	}
@@ -249,7 +249,7 @@ func (d *Driver) actionSchema(_ context.Context, _ map[string]string) (string, e
 		return "", errors.New("schema not loaded yet")
 	}
 
-	rawBytes, err := json.Marshal(sch.Raw)
+	rawBytes, err := json.Marshal(sch.ToJSON())
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal schema: %w", err)
 	}

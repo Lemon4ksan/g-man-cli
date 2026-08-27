@@ -7,7 +7,6 @@ package driver
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -25,6 +24,7 @@ const AppID = tf2.AppID
 // Driver acts as an adapter wrapping the official g-man-tf2 steam modules.
 type Driver struct {
 	client        *steam.Client
+	router        *game.ActionRouter
 	mu            sync.Mutex
 	cancelAutoAck context.CancelFunc
 	priceDBDoer   aoni.RequestDoer // optional; nil means use default
@@ -32,9 +32,13 @@ type Driver struct {
 
 // New constructs a new TF2Driver adapter instance.
 func New(client *steam.Client) *Driver {
-	return &Driver{
+	d := &Driver{
 		client: client,
+		router: game.NewActionRouter(),
 	}
+	d.initRouter()
+
+	return d
 }
 
 // AppID returns the official TF2 AppID (440).
@@ -130,98 +134,10 @@ func (d *Driver) GameProvider() game.InventoryProvider {
 
 // ExecuteAction executes operations directly on the official TF2 extension or crafting manager.
 func (d *Driver) ExecuteAction(ctx context.Context, action string, params map[string]string) (string, error) {
-	if action == "inventory" || action == "list-backpack" {
-		return d.actionInventory(ctx, params)
-	}
+	return d.router.Execute(ctx, action, params)
+}
 
-	switch action {
-	case "sort-backpack":
-		return d.actionSortBackpack(ctx, params)
-	case "maintenance":
-		return d.actionMaintenance(ctx, params)
-	case "craft-metal":
-		return d.actionCraftMetal(ctx, params)
-	case "delete-item":
-		return d.actionDeleteItem(ctx, params)
-	case "use-item":
-		return d.actionUseItem(ctx, params)
-	case "apply-tool":
-		return d.actionApplyTool(ctx, params)
-	case "set-item-style":
-		return d.actionSetItemStyle(ctx, params)
-	case "unwrap-gift":
-		return d.actionUnwrapGift(ctx, params)
-	case "deliver-gift":
-		return d.actionDeliverGift(ctx, params)
-	case "fulfill-dynamic-recipe-component":
-		return d.actionFulfillDynamicRecipe(ctx, params)
-	case "remove-makers-mark":
-		return d.actionRemoveMakersMark(ctx, params)
-	case "remove-gifted-by":
-		return d.actionRemoveGiftedBy(ctx, params)
-	case "acknowledge-all":
-		return d.actionAcknowledgeAll(ctx, params)
-	case "schema":
-		return d.actionSchema(ctx, params)
-	case "condense-metal":
-		return d.actionCondenseMetal(ctx, params)
-	case "make-change":
-		return d.actionMakeChange(ctx, params)
-	case "smelt-weapons":
-		return d.actionSmeltWeapons(ctx, params)
-	case "send-offer":
-		return d.actionSendOffer(ctx, params)
-	case "accept-offer":
-		return d.actionAcceptOffer(ctx, params)
-	case "decline-offer":
-		return d.actionDeclineOffer(ctx, params)
-	case "cancel-offer":
-		return d.actionCancelOffer(ctx, params)
-	case "check-escrow":
-		return d.actionCheckEscrow(ctx, params)
-	case "craft":
-		return d.actionCraft(ctx, params)
-	case "resolve-vanity-url":
-		return d.actionResolveVanityURL(ctx, params)
-	case "get-partner-inventory":
-		return d.actionGetPartnerInventory(ctx, params)
-	case "active-offers":
-		return d.actionActiveOffers(ctx, params)
-	case "active-sent-offers":
-		return d.actionActiveSentOffers(ctx, params)
-	case "active-offers-rich":
-		return d.actionActiveOffersRich(ctx, params)
-	case "active-sent-offers-rich":
-		return d.actionActiveSentOffersRich(ctx, params)
-	case "all-offers-rich":
-		return d.actionAllOffersRich(ctx, params)
-	case "all-sent-offers-rich":
-		return d.actionAllSentOffersRich(ctx, params)
-	case "targeted-smelt":
-		return d.actionTargetedSmelt(ctx, params)
-	case "backpack-value":
-		return d.actionBackpackValue(ctx, params)
-	case "memprofile":
-		return d.actionMemprofile(ctx, params)
-	case "batch-delete":
-		return d.actionBatchDelete(ctx, params)
-	case "batch-apply-tool":
-		return d.actionBatchApplyTool(ctx, params)
-	case "item-details":
-		return d.actionItemDetails(ctx, params)
-	case "price-check":
-		return d.actionPriceCheck(ctx, params)
-	case "inventory-stats":
-		return d.actionInventoryStats(ctx, params)
-	case "craft-recipe-list":
-		return d.actionCraftRecipeList(ctx, params)
-	case "health-check":
-		return d.actionHealthCheck(ctx, params)
-	case "profit-report":
-		return d.actionProfitReport(ctx, params)
-	case "activity-log":
-		return d.actionActivityLog(ctx, params)
-	default:
-		return "", fmt.Errorf("unsupported action for official TF2 module: %s", action)
-	}
+// Actions returns the list of actions supported by the TF2 driver.
+func (d *Driver) Actions() []game.ActionInfo {
+	return d.router.Actions()
 }

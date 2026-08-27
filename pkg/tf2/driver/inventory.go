@@ -699,7 +699,7 @@ func (d *Driver) actionBackpackValue(ctx context.Context, params map[string]stri
 
 	pdbClient := pricedb.NewClient(d.priceDBDoer)
 
-	pricesSlice, err := pdbClient.GetItemsBulk(ctx, skus)
+	pricesSlice, err := pricedb.GetItemsBulk(ctx, pdbClient, skus)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch prices from pricedb: %w", err)
 	}

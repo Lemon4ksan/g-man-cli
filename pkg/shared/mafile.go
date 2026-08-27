@@ -1,4 +1,4 @@
-// Copyright (c) 2026 lemon4ksan. All rights reserved.
+// Copyright (c) 2026 vlhltf. All rights reserved.
 // Use of this source code is governed by a proprietary license.
 
 package shared
@@ -10,7 +10,9 @@ import (
 	"strconv"
 )
 
-// MaFileData represents the JSON structure of a Steam Desktop Authenticator .maFile.
+var ErrMissingSecretsInMaFile = errors.New("invalid maFile: missing required shared_secret or identity_secret")
+
+// MaFileData represents the JSON payload structure of a Steam Desktop Authenticator .maFile.
 type MaFileData struct {
 	SharedSecret   string `json:"shared_secret"`
 	IdentitySecret string `json:"identity_secret"`
@@ -25,7 +27,7 @@ type MaFileData struct {
 	} `json:"Session"`
 }
 
-// ParseMaFile unmarshals raw JSON bytes into MaFileData.
+// ParseMaFile unmarshals JSON byte payloads into a [MaFileData] structure.
 func ParseMaFile(data []byte) (MaFileData, error) {
 	var ma MaFileData
 	if err := json.Unmarshal(data, &ma); err != nil {
@@ -35,17 +37,16 @@ func ParseMaFile(data []byte) (MaFileData, error) {
 	return ma, nil
 }
 
-// ValidateMaFile checks that required fields are present in the MaFileData.
+// ValidateMaFile validates presence of mandatory 2FA secret keys in [MaFileData].
 func ValidateMaFile(ma MaFileData) error {
 	if ma.SharedSecret == "" || ma.IdentitySecret == "" {
-		return errors.New("invalid maFile: missing shared_secret or identity_secret")
+		return ErrMissingSecretsInMaFile
 	}
 
 	return nil
 }
 
-// SteamIDFromMaFile extracts the numeric SteamID from a MaFileData, checking
-// both the top-level steam_id and Session.SteamID fields.
+// SteamIDFromMaFile resolves the 64-bit SteamID from top-level or nested session fields.
 func SteamIDFromMaFile(ma MaFileData) uint64 {
 	steamIDStr := ma.SteamID
 	if steamIDStr == "" {
@@ -56,10 +57,10 @@ func SteamIDFromMaFile(ma MaFileData) uint64 {
 		return 0
 	}
 
-	id, err := strconv.ParseUint(steamIDStr, 10, 64)
-	if err != nil || id == 0 {
+	steamID, err := strconv.ParseUint(steamIDStr, 10, 64)
+	if err != nil || steamID == 0 {
 		return 0
 	}
 
-	return id
+	return steamID
 }

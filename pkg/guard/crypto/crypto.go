@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package crypto provides encryption utilities for the g-man CLI.
+// Package crypto provides AES-256-GCM authenticated encryption, key derivation,
+// and Steam Device ID formatting for secure storage of credentials.
 package crypto
 
 import (
@@ -19,13 +20,24 @@ import (
 	"strings"
 )
 
-// CryptoMagic is the magic header prefix for encrypted files.
+// CryptoMagic is the magic header prefix for encrypted binary payloads.
 const CryptoMagic = "GMANENC\x00"
 
-// EncryptedPrefix is the prefix used for encrypted values inside .env.
+// EncryptedPrefix is the prefix identifying encrypted values inside .env files.
 const EncryptedPrefix = "GMANENC:"
 
-// DeriveKey derives a 32-byte key from a passphrase and a salt using 100,000 rounds of SHA-256.
+// Sentinel cryptographic errors.
+var (
+	ErrDataTooShort           = errors.New("invalid or corrupted encrypted data: payload too short")
+	ErrMissingMagicHeader     = errors.New("invalid encrypted data: missing GMANENC magic header")
+	ErrDecryptionFailed       = errors.New("decryption failed: invalid passphrase or corrupted data")
+	ErrInvalidEncryptedFormat = errors.New("invalid encrypted string format: must have 3 colon-separated parts")
+	ErrInvalidSalt            = errors.New("invalid salt encoding or size")
+	ErrInvalidNonce           = errors.New("invalid nonce encoding or size")
+	ErrInvalidCiphertext      = errors.New("invalid ciphertext encoding")
+)
+
+// DeriveKey derives a 32-byte key from a passphrase and salt using 100,000 rounds of SHA-256 hashing.
 func DeriveKey(passphrase string, salt []byte) []byte {
 	key := []byte(passphrase)
 	for range 100000 {
@@ -39,6 +51,7 @@ func DeriveKey(passphrase string, salt []byte) []byte {
 }
 
 // EncryptData encrypts plaintext bytes using AES-256-GCM.
+// Output Format: CryptoMagic (8 bytes) + Salt (16 bytes) + Nonce (12 bytes) + Ciphertext + Tag.
 func EncryptData(plaintext []byte, passphrase string) ([]byte, error) {
 	salt := make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
@@ -64,7 +77,6 @@ func EncryptData(plaintext []byte, passphrase string) ([]byte, error) {
 
 	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
 
-	// Combine: Magic + Salt + Nonce + Ciphertext
 	out := make([]byte, 0, len(CryptoMagic)+len(salt)+len(nonce)+len(ciphertext))
 	out = append(out, CryptoMagic...)
 	out = append(out, salt...)
@@ -74,15 +86,17 @@ func EncryptData(plaintext []byte, passphrase string) ([]byte, error) {
 	return out, nil
 }
 
-// DecryptData decrypts ciphertext bytes using AES-256-GCM.
+// DecryptData decrypts ciphertext bytes produced by [EncryptData] using AES-256-GCM.
 func DecryptData(data []byte, passphrase string) ([]byte, error) {
 	magicLen := len(CryptoMagic)
-	if len(data) < magicLen+16+12+16 {
-		return nil, errors.New("invalid or corrupted encrypted data: file too short")
+	minLen := magicLen + 16 + 12 + 16
+
+	if len(data) < minLen {
+		return nil, ErrDataTooShort
 	}
 
 	if string(data[:magicLen]) != CryptoMagic {
-		return nil, errors.New("invalid encrypted data: missing GMANENC magic header")
+		return nil, ErrMissingMagicHeader
 	}
 
 	salt := data[magicLen : magicLen+16]
@@ -103,13 +117,13 @@ func DecryptData(data []byte, passphrase string) ([]byte, error) {
 
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, errors.New("decryption failed: invalid passphrase or corrupted data")
+		return nil, ErrDecryptionFailed
 	}
 
 	return plaintext, nil
 }
 
-// EncryptString encrypts a string and formats it as "GMANENC:<salt_hex>:<nonce_hex>:<ciphertext_hex>".
+// EncryptString encrypts a string value and formats it as "GMANENC:<salt_hex>:<nonce_hex>:<ciphertext_hex>".
 func EncryptString(plaintext, passphrase string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
@@ -143,32 +157,32 @@ func EncryptString(plaintext, passphrase string) (string, error) {
 	), nil
 }
 
-// DecryptString decrypts a formatted encrypted string.
+// DecryptString decrypts an encrypted string formatted with the "GMANENC:" prefix.
 func DecryptString(encrypted, passphrase string) (string, error) {
 	if !strings.HasPrefix(encrypted, EncryptedPrefix) {
-		return "", errors.New("invalid encrypted string: missing prefix")
+		return "", ErrMissingMagicHeader
 	}
 
 	payload := strings.TrimPrefix(encrypted, EncryptedPrefix)
 
 	parts := strings.Split(payload, ":")
 	if len(parts) != 3 {
-		return "", errors.New("invalid encrypted string format: must have 3 parts")
+		return "", ErrInvalidEncryptedFormat
 	}
 
 	salt, err := hex.DecodeString(parts[0])
 	if err != nil || len(salt) != 16 {
-		return "", errors.New("invalid salt encoding or size")
+		return "", ErrInvalidSalt
 	}
 
 	nonce, err := hex.DecodeString(parts[1])
 	if err != nil || len(nonce) != 12 {
-		return "", errors.New("invalid nonce encoding or size")
+		return "", ErrInvalidNonce
 	}
 
 	ciphertext, err := hex.DecodeString(parts[2])
 	if err != nil {
-		return "", errors.New("invalid ciphertext encoding")
+		return "", ErrInvalidCiphertext
 	}
 
 	key := DeriveKey(passphrase, salt)
@@ -185,13 +199,13 @@ func DecryptString(encrypted, passphrase string) (string, error) {
 
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return "", errors.New("decryption failed: invalid passphrase or corrupted data")
+		return "", ErrDecryptionFailed
 	}
 
 	return string(plaintext), nil
 }
 
-// IsEncryptedString checks if the string starts with the GMANENC: prefix.
+// IsEncryptedString checks if the string contains the "GMANENC:" encryption prefix.
 func IsEncryptedString(val string) bool {
 	return strings.HasPrefix(val, EncryptedPrefix)
 }

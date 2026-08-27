@@ -1,4 +1,4 @@
-// Copyright (c) 2026 lemon4ksan. All rights reserved.
+// Copyright (c) 2026 vlhltf. All rights reserved.
 // Use of this source code is governed by a proprietary license.
 
 package shared
@@ -12,8 +12,7 @@ import (
 	"github.com/lemon4ksan/g-man-cli/pkg/guard/crypto"
 )
 
-// GenerateRandomDeviceID creates a random Android-style Steam Guard device ID
-// in the format "android:XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX".
+// GenerateRandomDeviceID creates a random Android-style Steam Guard Device ID.
 func GenerateRandomDeviceID() string {
 	var r [16]byte
 
@@ -25,8 +24,7 @@ func GenerateRandomDeviceID() string {
 	)
 }
 
-// ResolveDeviceID returns deviceID if non-empty, derives one from steamID via
-// crypto.GetDeviceID, or falls back to a random device ID.
+// ResolveDeviceID returns deviceID if set, derives a deterministic one from steamID, or generates a random one.
 func ResolveDeviceID(deviceID string, steamID uint64) string {
 	if deviceID != "" {
 		return deviceID
@@ -39,8 +37,7 @@ func ResolveDeviceID(deviceID string, steamID uint64) string {
 	return GenerateRandomDeviceID()
 }
 
-// ResolveDeviceIDFromStr resolves a device ID from a string steamID representation.
-// Returns ResolveDeviceID with a parsed steamID, or falls back to a random ID on parse error.
+// ResolveDeviceIDFromStr parses steamIDStr and resolves a Steam Device ID via [ResolveDeviceID].
 func ResolveDeviceIDFromStr(deviceID, steamIDStr string) string {
 	if deviceID != "" {
 		return deviceID
