@@ -688,7 +688,10 @@ func TestDriver_ExecuteAction(t *testing.T) {
 		body := []byte(`{}`)
 		return tr.NewResponse(io.NopCloser(bytes.NewReader(body)), nil), nil
 	}
-	res, err = d.ExecuteAction(ctx, "accept-offer", map[string]string{"offer_id": "987654"})
+	res, err = d.ExecuteAction(ctx, "accept-offer", map[string]string{
+		"offer_id":   "987654",
+		"partner_id": "76561198000000002",
+	})
 	assert.NoError(t, err)
 	assert.Contains(t, res, "Successfully accepted offer")
 

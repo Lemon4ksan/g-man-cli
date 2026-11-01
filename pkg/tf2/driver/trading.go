@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lemon4ksan/foundation/codec/json"
+	"github.com/lemon4ksan/foundation/encoding/json"
 	"github.com/lemon4ksan/foundation/generic"
 	"github.com/lemon4ksan/g-man-tf2/pkg/backpack"
 	"github.com/lemon4ksan/g-man-tf2/pkg/schema"
@@ -71,7 +71,16 @@ func (d *Driver) actionAcceptOffer(ctx context.Context, params map[string]string
 		return "", errors.New("web module not registered or loaded")
 	}
 
+	var partnerID id.ID
+	if partnerIDStr, ok := params["partner_id"]; ok && partnerIDStr != "" {
+		partnerID = id.Parse(partnerIDStr)
+	}
+
 	if err := retryOnRetriable(ctx, func() error {
+		if partnerID != 0 {
+			return webMod.AcceptOfferWithPartner(ctx, offerID, partnerID)
+		}
+
 		return webMod.AcceptOffer(ctx, offerID)
 	}); err != nil {
 		return "", fmt.Errorf("failed to accept offer: %w", err)
